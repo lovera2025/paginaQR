@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 import type { ActivityLog, AdminStats, Evento, Orden, Ticket } from "@/types";
 import { formatFechaCorta, formatPrecio, ticketEstadoLabel } from "@/lib/utils";
 
@@ -65,9 +66,9 @@ export function AdminDashboard() {
 
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, 2000);
-    return () => clearInterval(id);
   }, [refresh]);
+
+  useAdminRealtime(refresh);
 
   async function handleCancel(ticketId: string) {
     if (!confirm("¿Dar de baja esta entrada?")) return;
@@ -119,7 +120,7 @@ export function AdminDashboard() {
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Admin</h1>
-            <p className="text-xs text-white/40">Actualización en vivo · mock</p>
+            <p className="text-xs text-white/40">Actualización en vivo</p>
           </div>
           <div className="flex gap-2">
             <a

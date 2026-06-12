@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createOrdenPendiente } from "@/lib/mock/db";
+import { createOrdenPendiente } from "@/lib/db";
 import { isMockMode } from "@/lib/config";
 
 export async function POST(request: Request) {
@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const result = createOrdenPendiente({
+  const result = await createOrdenPendiente({
     compradorNombre: body.compradorNombre ?? "",
     compradorEmail: body.compradorEmail ?? "",
     cantidad: Number(body.cantidad) || 1,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { refundOrden } from "@/lib/mock/db";
+import { refundOrden } from "@/lib/db";
 import { requireRole } from "@/lib/auth/cookies";
 
 export async function POST(
@@ -10,7 +10,7 @@ export async function POST(
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const result = refundOrden(params.id);
+  const result = await refundOrden(params.id);
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

@@ -9,13 +9,14 @@
 |------|--------|
 | Planificación completa | ✅ Hecho |
 | Repo Git `paginaQR` | ✅ Creado |
-| **Fase A mock local** | ✅ **Implementada** |
-| Supabase | ❌ Fase B (siguiente) |
+| **Fase A mock local** | ✅ Implementada |
+| **Fase B Supabase (código)** | ✅ Preparada — falta conectar tu proyecto |
+| Supabase (proyecto en la nube) | ❌ Pendiente — ver `docs/SUPABASE-SETUP.md` |
 | Vercel | ❌ Cuando conectes GitHub |
 | Mercado Pago | ❌ Fase C |
 | Resend (emails) | ❌ Fase C |
 
-**Momento exacto:** Fase A completa. Probar en local. Siguiente paso: **Fase B (Supabase)**.
+**Momento exacto:** Fase B preparada en código. Sin variables Supabase → sigue en mock. Conectar proyecto: `docs/SUPABASE-SETUP.md`.
 
 ---
 

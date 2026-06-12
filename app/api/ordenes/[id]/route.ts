@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getOrden } from "@/lib/mock/db";
+import { getOrden } from "@/lib/db";
 
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const orden = getOrden(params.id);
+  const orden = await getOrden(params.id);
   if (!orden) {
     return NextResponse.json({ error: "Orden no encontrada" }, { status: 404 });
   }

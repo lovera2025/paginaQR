@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getOrden, getTicketsByOrden } from "@/lib/mock/db";
+import { getOrden, getTicketsByOrden } from "@/lib/db";
 import { generateQrDataUrl } from "@/lib/qr/generate";
 
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const orden = getOrden(params.id);
+  const orden = await getOrden(params.id);
   if (!orden) {
     return NextResponse.json({ error: "Orden no encontrada" }, { status: 404 });
   }
@@ -14,7 +14,7 @@ export async function GET(
     return NextResponse.json({ error: "Pago no confirmado" }, { status: 400 });
   }
 
-  const tickets = getTicketsByOrden(params.id).filter((t) => !t.cancelado);
+  const tickets = (await getTicketsByOrden(params.id)).filter((t) => !t.cancelado);
   const withQr = await Promise.all(
     tickets.map(async (ticket) => ({
       ...ticket,

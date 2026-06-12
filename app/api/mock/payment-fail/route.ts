@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rejectOrden } from "@/lib/mock/db";
+import { rejectOrden } from "@/lib/db";
 import { isMockMode } from "@/lib/config";
 
 export async function POST(request: Request) {
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "ordenId requerido" }, { status: 400 });
   }
 
-  const result = rejectOrden(ordenId);
+  const result = await rejectOrden(ordenId);
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

@@ -15,3 +15,9 @@ export function getAdminPin(): string {
 export function getScannerPin(): string {
   return process.env.SCANNER_PIN ?? process.env.ADMIN_PIN ?? "1234";
 }
+
+export function isSupabaseConfigured(): boolean {
+  const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return Boolean(url && key);
+}

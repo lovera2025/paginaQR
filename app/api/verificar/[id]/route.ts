@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyTicket } from "@/lib/mock/db";
+import { verifyTicket } from "@/lib/db";
 import { requireRole } from "@/lib/auth/cookies";
 
 export async function POST(
@@ -10,6 +10,6 @@ export async function POST(
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const result = verifyTicket(params.id);
+  const result = await verifyTicket(params.id);
   return NextResponse.json(result);
 }

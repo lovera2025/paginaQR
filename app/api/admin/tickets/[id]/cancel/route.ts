@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cancelTicket } from "@/lib/mock/db";
+import { cancelTicket } from "@/lib/db";
 import { requireRole } from "@/lib/auth/cookies";
 
 export async function POST(
@@ -11,7 +11,7 @@ export async function POST(
   }
 
   const body = await request.json().catch(() => ({}));
-  const result = cancelTicket(params.id, body.motivo);
+  const result = await cancelTicket(params.id, body.motivo);
 
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });

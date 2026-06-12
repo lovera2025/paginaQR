@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { getEventoActivo } from "@/lib/mock/db";
+import { getEventoActivo } from "@/lib/db";
 import { TicketForm } from "@/components/comprar/TicketForm";
 import { formatPrecio } from "@/lib/utils";
 
-export default function ComprarPage() {
-  const evento = getEventoActivo();
+export default async function ComprarPage() {
+  const evento = await getEventoActivo();
 
   if (!evento) {
     return (
