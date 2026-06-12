@@ -1,0 +1,22 @@
+{
+  "name": "PaginaQR Scanner",
+  "short_name": "Scanner",
+  "description": "Escáner de entradas para eventos",
+  "start_url": "/scanner",
+  "display": "standalone",
+  "background_color": "#050508",
+  "theme_color": "#050508",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
