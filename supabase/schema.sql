@@ -80,7 +80,7 @@ INSERT INTO eventos (
 ) VALUES (
   'evento-demo',
   'Fiesta de Promo — Buzo Chomba Bandera',
-  '2026-06-20T22:00:00Z',
+  '2026-06-20T23:00:00Z',
   15000,
   300,
   true,

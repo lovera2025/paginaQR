@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 import type { ActivityLog, AdminStats, Evento, Orden, Ticket } from "@/types";
-import { formatFechaCorta, formatPrecio, ticketEstadoLabel } from "@/lib/utils";
+import { formatFechaCorta, formatPrecio, isoToDatetimeLocalAr, ticketEstadoLabel } from "@/lib/utils";
 
 type Tab = "resumen" | "compras" | "entradas" | "apariencia" | "actividad";
 
@@ -302,6 +302,23 @@ export function AdminDashboard() {
               </p>
             )}
             <Field label="Nombre del evento" value={evento.nombre} onChange={(v) => setEvento({ ...evento, nombre: v })} />
+            <div>
+              <label className="mb-1 block text-sm text-white/60">
+                Fecha y hora del evento
+              </label>
+              <input
+                type="datetime-local"
+                value={isoToDatetimeLocalAr(evento.fecha)}
+                onChange={(e) =>
+                  setEvento({
+                    ...evento,
+                    fecha: e.target.value ? `${e.target.value}:00-03:00` : evento.fecha,
+                  })
+                }
+                className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none [color-scheme:dark]"
+              />
+              <p className="mt-1 text-xs text-white/40">Hora Argentina (24 h, ej. 20:00)</p>
+            </div>
             <Field label="URL del flyer (hero)" value={evento.flyerUrl} onChange={(v) => setEvento({ ...evento, flyerUrl: v })} />
             <Field label="URL del logo" value={evento.logoUrl} onChange={(v) => setEvento({ ...evento, logoUrl: v })} />
             <Field label="Color primario (#hex)" value={evento.colorPrimario} onChange={(v) => setEvento({ ...evento, colorPrimario: v })} />

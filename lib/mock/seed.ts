@@ -3,7 +3,7 @@ import type { Evento } from "@/types";
 export const SEED_EVENTO: Evento = {
   id: "evento-demo",
   nombre: "Fiesta de Promo — Buzo Chomba Bandera",
-  fecha: "2026-06-20T22:00:00.000Z",
+  fecha: "2026-06-20T23:00:00.000Z",
   precio: 15000,
   capacidad: 300,
   activo: true,
