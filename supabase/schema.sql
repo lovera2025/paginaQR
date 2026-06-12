@@ -73,28 +73,29 @@ CREATE INDEX IF NOT EXISTS idx_ordenes_evento ON ordenes(evento_id);
 
 INSERT INTO eventos (
   id, nombre, fecha, precio, capacidad, activo,
-  flyer_url, color_primario, color_secundario,
+  logo_url, flyer_url, color_primario, color_secundario,
   descripcion, lugar, maps_url,
   contacto_whatsapp, contacto_email, contacto_instagram,
   texto_footer, organizador_nombre
 ) VALUES (
   'evento-demo',
-  'Noche Electrónica 2026',
-  '2026-08-15T22:00:00Z',
+  'Fiesta de Promo — Buzo Chomba Bandera',
+  '2026-06-20T22:00:00Z',
   15000,
-  200,
+  300,
   true,
-  'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1200&q=80',
-  '#ff006e',
-  '#8338ec',
-  'Una noche inolvidable con los mejores DJs. Música electrónica, luces y una experiencia única.',
-  'Club Aurora — Av. Corrientes 1234, CABA',
-  'https://maps.google.com',
-  '5491112345678',
-  'info@nocheelectronica.com',
-  '@nocheelectronica',
-  'Consultas por WhatsApp o email. Reembolsos: contactá al organizador hasta 48hs antes del evento.',
-  'Aurora Producciones'
+  '/flyer.jpeg',
+  '/flyer.jpeg',
+  '#FFCC00',
+  '#1a1a1a',
+  'Fiesta de promo con desfile, presentación y joda. Incluye buzo, chomba y bandera.',
+  'A confirmar',
+  '',
+  '',
+  '',
+  '',
+  'Consultas por WhatsApp o redes. Reembolsos: contactá al organizador.',
+  'Promo 2026'
 ) ON CONFLICT (id) DO NOTHING;
 
 -- ─── RLS ──────────────────────────────────────────────────────────────────
@@ -112,5 +113,8 @@ CREATE POLICY "eventos_public_read" ON eventos
 -- No crear políticas de anon/authenticated para ordenes, tickets, activity_log
 
 -- ─── Realtime ─────────────────────────────────────────────────────────────
--- Activar en Dashboard: Database → Replication
--- Tablas: eventos, ordenes, tickets, activity_log
+
+ALTER PUBLICATION supabase_realtime ADD TABLE eventos;
+ALTER PUBLICATION supabase_realtime ADD TABLE ordenes;
+ALTER PUBLICATION supabase_realtime ADD TABLE tickets;
+ALTER PUBLICATION supabase_realtime ADD TABLE activity_log;

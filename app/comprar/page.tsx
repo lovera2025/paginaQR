@@ -3,6 +3,8 @@ import { getEventoActivo } from "@/lib/db";
 import { TicketForm } from "@/components/comprar/TicketForm";
 import { formatPrecio } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 export default async function ComprarPage() {
   const evento = await getEventoActivo();
 

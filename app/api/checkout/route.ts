@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { createOrdenPendiente } from "@/lib/db";
-import { isMockMode } from "@/lib/config";
+import { canSimulatePayment } from "@/lib/config";
 
 export async function POST(request: Request) {
-  if (!isMockMode()) {
+  if (!canSimulatePayment()) {
     return NextResponse.json(
       { error: "Checkout real disponible en Fase C" },
       { status: 501 }

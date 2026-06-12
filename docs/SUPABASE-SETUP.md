@@ -1,45 +1,72 @@
-# Conectar Supabase (Fase B)
+# Conectar Supabase — paginaqr-eventos
 
-## 1. Crear proyecto
+> Si **solo creaste el proyecto** en Supabase, seguí estos 3 pasos en orden.
 
-1. [supabase.com](https://supabase.com) → New project
-2. Nombre: `pagina-qr-entradas` (o similar)
-3. Región: South America (São Paulo)
+## Paso 1 — Ejecutar el schema (obligatorio)
 
-## 2. Ejecutar schema
+El proyecto Supabase está **vacío** hasta que corras el SQL.
 
-1. SQL Editor → New query
-2. Pegar contenido de `supabase/schema.sql`
-3. Run
+1. Abrí [supabase.com/dashboard](https://supabase.com/dashboard) → proyecto **paginaqr-eventos**
+2. Menú izquierdo → **SQL Editor** → **New query**
+3. Abrí el archivo `supabase/schema.sql` de este repo (o copiá todo su contenido)
+4. Pegá en el editor y clic **Run**
 
-## 3. Activar Realtime
+Deberías ver: `Success. No rows returned` (o similar).
 
-Database → Replication → habilitar:
-- `eventos`
-- `ordenes`
-- `tickets`
-- `activity_log`
+**Verificar:** Table Editor → deben existir `eventos`, `ordenes`, `tickets`, `activity_log` y una fila en `eventos`.
 
-## 4. Variables de entorno
+## Paso 2 — Variables de entorno
 
-En `.env.local`:
+1. Supabase → **Project Settings** (engranaje) → **API**
+2. Copiá estos valores a `.env.local` en la carpeta del proyecto:
 
 ```env
 APP_MODE=development
-SUPABASE_URL=https://TU_PROYECTO.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJ...   # Settings → API → service_role (secreto)
-NEXT_PUBLIC_SUPABASE_URL=https://TU_PROYECTO.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...   # Settings → API → anon public
+ADMIN_PIN=1234
+SCANNER_PIN=1234
+
+SUPABASE_URL=https://TU_PROJECT_REF.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...   # service_role — SECRETO, solo servidor
+NEXT_PUBLIC_SUPABASE_URL=https://TU_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...   # anon public
 ```
 
-Reiniciar `npm run dev`.
+**Importante:** la `service_role` nunca la subas a GitHub ni la pegues en chats públicos.
 
-## 5. Verificar
+## Paso 3 — Verificar conexión
 
-- Landing carga evento desde Supabase
-- Compra → simular pago → tickets en Table Editor
-- Admin actualiza al instante (Realtime)
+```bash
+npm run verify:supabase
+```
 
-## Nota
+Si todo está bien:
 
-Mientras no configures Supabase, el sistema sigue usando **mock en memoria** automáticamente.
+```bash
+npm run dev
+```
+
+Abrí http://localhost:3000 — la landing debe cargar el evento desde Supabase (no mock).
+
+---
+
+## Qué hace el schema
+
+- Crea tablas: `eventos`, `ordenes`, `tickets`, `activity_log`
+- Inserta evento demo **Noche Electrónica 2026**
+- Activa RLS (seguridad)
+- Activa **Realtime** en las 4 tablas (admin se actualiza solo)
+
+## Probar el flujo
+
+1. `/comprar` → completar formulario → simular pago
+2. Supabase **Table Editor** → `ordenes` y `tickets` con datos nuevos
+3. Reiniciar `npm run dev` → los datos **siguen** (ya no es mock)
+4. `/admin` (PIN 1234) → contadores suben al simular venta
+
+## Vercel (después)
+
+En el proyecto Vercel, agregá las **mismas** variables de Supabase en Settings → Environment Variables.
+
+## Volver a mock
+
+Borrá o comentá `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en `.env.local`, o poné `APP_MODE=mock`.

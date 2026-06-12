@@ -8,6 +8,15 @@ export function isMockMode(): boolean {
   return getAppMode() === "mock";
 }
 
+export function isMercadoPagoConfigured(): boolean {
+  return Boolean(process.env.MP_ACCESS_TOKEN?.trim());
+}
+
+/** Demo / Fase A–B: simular pago hasta que MP esté conectado (Fase C). */
+export function canSimulatePayment(): boolean {
+  return isMockMode() || !isMercadoPagoConfigured();
+}
+
 export function getAdminPin(): string {
   return process.env.ADMIN_PIN ?? "1234";
 }

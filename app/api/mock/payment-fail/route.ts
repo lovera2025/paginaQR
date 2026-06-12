@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { rejectOrden } from "@/lib/db";
-import { isMockMode } from "@/lib/config";
+import { canSimulatePayment } from "@/lib/config";
 
 export async function POST(request: Request) {
-  if (!isMockMode()) {
-    return NextResponse.json({ error: "Solo en modo mock" }, { status: 403 });
+  if (!canSimulatePayment()) {
+    return NextResponse.json({ error: "Simulación no disponible" }, { status: 403 });
   }
 
   const { ordenId } = await request.json();

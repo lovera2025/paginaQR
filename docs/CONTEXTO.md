@@ -8,15 +8,15 @@
 | Item | Estado |
 |------|--------|
 | Planificación completa | ✅ Hecho |
-| Repo Git `paginaQR` | ✅ Creado |
+| Repo Git `paginaQR` | ✅ En GitHub (lovera2025/paginaQR) |
 | **Fase A mock local** | ✅ Implementada |
-| **Fase B Supabase (código)** | ✅ Preparada — falta conectar tu proyecto |
-| Supabase (proyecto en la nube) | ❌ Pendiente — ver `docs/SUPABASE-SETUP.md` |
-| Vercel | ❌ Cuando conectes GitHub |
+| **Fase B Supabase (código)** | ✅ Preparada |
+| Supabase proyecto conectado | ✅ Schema + `.env.local` OK |
+| Vercel | 🔄 Repo listo — agregar env vars y Deploy |
 | Mercado Pago | ❌ Fase C |
 | Resend (emails) | ❌ Fase C |
 
-**Momento exacto:** Fase B preparada en código. Sin variables Supabase → sigue en mock. Conectar proyecto: `docs/SUPABASE-SETUP.md`.
+**Momento exacto:** Fase B conectada. Deploy demo en Vercel: ver `docs/VERCEL-DEPLOY.md`. Siguiente: variables en Vercel → Deploy → probar flujo público.
 
 ---
 

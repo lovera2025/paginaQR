@@ -3,6 +3,8 @@ import { EventHero } from "@/components/landing/EventHero";
 import { AboutSection } from "@/components/landing/AboutSection";
 import { Footer } from "@/components/landing/Footer";
 
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   const evento = await getEventoActivo();
 
