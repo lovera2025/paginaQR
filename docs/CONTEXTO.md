@@ -1,7 +1,7 @@
 # PaginaQR / JR Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: 12 junio 2026
+> Última actualización: 12 junio 2026 (noche — Bloque 1 deployado)
 
 ## Meta inmediata
 
@@ -34,12 +34,15 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 | Branding "JR Eventos" (título pestaña) | ✅ Bloque 1 (vie 12) |
 | Feedback reembolso / baja en admin | ✅ Bloque 1 (vie 12) |
 | Google Maps en admin | ✅ Bloque 1 (vie 12) |
-| Mercado Pago (Checkout Pro) | ❌ Fase C — credenciales listas, código pendiente |
-| Resend (emails con QR) | ❌ Fase C |
-| PIN fuerte en producción | ❌ Pendiente |
+| Formato fecha landing (`· 20:00 hs`) | ✅ vie 12 — commit `14c9a5a` |
+| Mercado Pago (Checkout Pro) | ❌ Bloque 2 — sáb 13 |
+| Resend (emails con QR) | ❌ Bloque 3 — dom 14 |
+| PIN fuerte en producción | ❌ dom/lun |
 | Dominio propio | ❌ Opcional (ej. entradas.jreventos.com) |
 
-**Momento exacto:** Bloque 1 completo (vie 12). Demo online con compra **simulada**. Siguiente: **MP sáb 13** → **Resend dom 14** → cierre lun 15 tarde.
+**Momento exacto:** Bloque 1 **en producción** (Vercel redeploy hecho). Compra **simulada**. Upload requiere `supabase/storage.sql` si aún no se corrió. **Siguiente sesión:** Bloque 2 MP (sáb 13) → Bloque 3 Resend (dom 14) → cierre lun 15 tarde.
+
+**Commits recientes:** `d152e79` (Bloque 1) · `14c9a5a` (fecha `· hs`)
 
 ---
 
@@ -48,8 +51,8 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 - **Integración elegida:** Checkout Pro (redirect + webhook). No link de pago suelto, no Checkout API.
 - **Cuenta:** Mercado Pago del **hijo** del jefe (amigo de confianza del dev).
 - **La plata del evento cae en esa cuenta MP** (reembolsos también salen de ahí).
-- **Paso 0 (gestión):** credenciales hoy — app "JR Eventos Entradas" en [developers.mercadopago.com](https://www.mercadopago.com.ar/developers) → **Access Token test** (sábado) + **producción** (lunes).
-- **Implementación en código:** después del Bloque 1 (botones, upload, branding).
+- **Paso 0 (gestión):** app "JR Eventos Entradas" en [developers.mercadopago.com](https://www.mercadopago.com.ar/developers) → **Access Token test** (sábado) + **producción** (lunes).
+- **Implementación en código:** Bloque 2 (sábado 13).
 
 ---
 
@@ -68,8 +71,10 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 |-----|-----|
 | Landing | https://jreventos-entradas.vercel.app |
 | Comprar | /comprar |
-| Admin | /admin (PIN — cambiar en prod) |
-| Scanner | /scanner (PIN — cambiar en prod) |
+| Admin | /admin (PIN `1234` en demo — cambiar en prod) |
+| Scanner | /scanner (PIN `1234` en demo — cambiar en prod) |
+
+**Nota UX:** link **Admin** está en el **footer** (scroll abajo), no en el hero. **Scanner** solo en header del panel admin. Atajo: `/admin` directo.
 
 Local: `npm run dev` → http://localhost:3000
 
@@ -115,8 +120,11 @@ Sistema de venta de entradas para eventos (Argentina). Marca: **Junior Eventos /
 - [x] Título/metadata pestaña → **"JR Eventos"**
 - [x] Feedback claro en reembolso y baja de entrada
 - [x] Campo Google Maps en admin (`mapsUrl`)
+- [x] Formato fecha landing: `Sábado 20 de junio · 20:00 hs` (`lib/utils.ts` → `formatFecha`)
+- [x] Push GitHub + deploy Vercel
 
-**Pendiente manual:** ejecutar `supabase/storage.sql` en Supabase si el upload falla.
+**Pendiente manual (antes de usar upload):**
+- [ ] Ejecutar `supabase/storage.sql` en Supabase SQL Editor (bucket `eventos`)
 
 ---
 
@@ -199,7 +207,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ## Fases (referencia)
 
 - **A Mock** ✅
-- **B Supabase** ✅ (falta Storage upload)
+- **B Supabase** ✅ (Storage + upload en admin)
 - **C MP + Resend** ❌ — en curso (meta lun 15 tarde)
 - **D Post-evento** — dominio propio, Supabase Auth opcional, Checkout Bricks opcional
 
@@ -265,10 +273,30 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 - [x] URL flyer / logo (manual — reemplazar por upload)
 - [x] Upload imágenes (botón Subir)
 - [x] Google Maps (`mapsUrl`)
+- [x] Formato fecha evento en landing (`Sábado … · HH:mm hs`)
 
 ---
 
-## Cómo probar el flujo (hoy — simulación)
+## Pendiente opcional (post Bloque 1)
+
+- [ ] Link **Admin** más visible en nav del hero (hoy solo footer)
+- [ ] Verificar precio en DB vs flyer si no coincide en producción
+
+---
+
+## Qué falta — resumen para próxima sesión
+
+| Prioridad | Bloque | Tareas |
+|-----------|--------|--------|
+| 1 | **Sáb 13 — MP** | Checkout Pro, webhook, idempotencia, sacar simulación con token |
+| 2 | **Dom 14 — Email** | Resend, QR por entrada, snapshot logo al comprar |
+| 3 | **Dom 14 — Ops** | Reembolso API MP, PIN fuerte, `APP_MODE=production` |
+| 4 | **Lun 15** | Token MP prod, compra real de prueba, demo al jefe |
+
+**Gestión paralela:** Access Token MP test (cuenta del hijo) · API key Resend · PINs admin/scanner
+
+---
+## Cómo probar el flujo (simulación — hasta conectar MP)
 
 1. `/comprar` → formulario → simular pago exitoso
 2. `/compra/exito` → ver QR(s) — una tarjeta por entrada
@@ -293,8 +321,8 @@ npm run update:evento    # actualizar evento demo en Supabase
 ## Cómo continuar en un nuevo chat
 
 1. Leer este archivo
-2. Confirmar meta: **operativo lun 15 tarde**, evento **vie 20**
-3. **Siguiente tarea código:** Bloque 2 — Mercado Pago Checkout Pro + webhook (sáb 13)
-4. **Después:** Resend → PIN prod → prueba compra real
-5. Probar https://jreventos-entradas.vercel.app
-6. Si upload falla: ejecutar `supabase/storage.sql` en SQL Editor
+2. Meta: **operativo lun 15 tarde**, evento **vie 20**
+3. **Siguiente tarea:** Bloque 2 — Mercado Pago Checkout Pro + `/api/webhook-mp`
+4. Verificar: `supabase/storage.sql` ejecutado si upload falla
+5. Credenciales: MP test del hijo + Resend en `.env.local` / Vercel
+6. Probar https://jreventos-entradas.vercel.app (`JR Eventos` en pestaña, Admin en footer)
