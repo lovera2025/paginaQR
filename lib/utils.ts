@@ -5,15 +5,28 @@ export function formatPrecio(amount: number): string {
 const TZ_AR = "America/Argentina/Buenos_Aires";
 
 export function formatFecha(iso: string): string {
-  return new Date(iso).toLocaleDateString("es-AR", {
+  const d = new Date(iso);
+  const weekdayRaw = d.toLocaleDateString("es-AR", {
     weekday: "long",
+    timeZone: TZ_AR,
+  });
+  const day = d.toLocaleDateString("es-AR", {
     day: "numeric",
+    timeZone: TZ_AR,
+  });
+  const month = d.toLocaleDateString("es-AR", {
     month: "long",
+    timeZone: TZ_AR,
+  });
+  const hora = d.toLocaleTimeString("es-AR", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
     timeZone: TZ_AR,
   });
+  const weekday =
+    weekdayRaw.charAt(0).toUpperCase() + weekdayRaw.slice(1);
+  return `${weekday} ${day} de ${month} · ${hora} hs`;
 }
 
 /** Para input datetime-local: hora Argentina (YYYY-MM-DDTHH:mm). */
