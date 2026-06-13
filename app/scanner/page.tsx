@@ -2,7 +2,7 @@ import { PinGate } from "@/components/auth/PinGate";
 import { QRScanner } from "@/components/scanner/QRScanner";
 
 export const metadata = {
-  title: "Scanner — PaginaQR",
+  title: "Scanner — JR Eventos",
 };
 
 export default function ScannerPage() {

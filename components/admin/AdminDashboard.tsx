@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ImageUploadField } from "@/components/admin/ImageUploadField";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 import type { ActivityLog, AdminStats, Evento, Orden, Ticket } from "@/types";
 import { formatFechaCorta, formatPrecio, isoToDatetimeLocalAr, ticketEstadoLabel } from "@/lib/utils";
 
 type Tab = "resumen" | "compras" | "entradas" | "apariencia" | "actividad";
+type Toast = { type: "success" | "error"; text: string };
 
 function Field({
   label,
@@ -47,7 +49,13 @@ export function AdminDashboard() {
   const [activity, setActivity] = useState<ActivityLog[]>([]);
   const [evento, setEvento] = useState<Evento | null>(null);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
+
+  function showToast(type: Toast["type"], text: string) {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), 4000);
+  }
 
   const refresh = useCallback(async () => {
     const [s, o, t, a, e] = await Promise.all([
@@ -72,33 +80,74 @@ export function AdminDashboard() {
 
   async function handleCancel(ticketId: string) {
     if (!confirm("¿Dar de baja esta entrada?")) return;
-    await fetch(`/api/admin/tickets/${ticketId}/cancel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ motivo: "Baja manual admin" }),
-    });
-    refresh();
+    setActionLoading(ticketId);
+    try {
+      const res = await fetch(`/api/admin/tickets/${ticketId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: "Baja manual admin" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast("error", data.error ?? "No se pudo dar de baja");
+        return;
+      }
+      showToast("success", "Entrada dada de baja");
+      refresh();
+    } finally {
+      setActionLoading(null);
+    }
   }
 
   async function handleRefund(ordenId: string) {
     if (!confirm("¿Marcar orden como reembolsada y cancelar todas sus entradas?")) return;
-    await fetch(`/api/admin/ordenes/${ordenId}/refund`, { method: "POST" });
+    setActionLoading(ordenId);
+    try {
+      const res = await fetch(`/api/admin/ordenes/${ordenId}/refund`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast("error", data.error ?? "No se pudo reembolsar");
+        return;
+      }
+      showToast("success", "Reembolso aplicado — entradas canceladas");
+      refresh();
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function persistEvento(updated: Evento, successMsg?: string) {
+    const res = await fetch("/api/admin/evento", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      showToast("error", data.error ?? "No se pudo guardar");
+      return false;
+    }
+    if (successMsg) showToast("success", successMsg);
     refresh();
+    return true;
+  }
+
+  async function handleImageUploaded(field: "logoUrl" | "flyerUrl", url: string) {
+    if (!evento) return;
+    const updated = { ...evento, [field]: url };
+    setEvento(updated);
+    const label = field === "logoUrl" ? "Logo actualizado" : "Flyer actualizado";
+    await persistEvento(updated, label);
   }
 
   async function handleSaveEvento(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!evento) return;
     setSaving(true);
-    await fetch("/api/admin/evento", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(evento),
-    });
+    await persistEvento(evento, "Cambios guardados");
     setSaving(false);
-    setMsg("Cambios guardados");
-    setTimeout(() => setMsg(""), 3000);
-    refresh();
   }
 
   async function logout() {
@@ -122,7 +171,14 @@ export function AdminDashboard() {
             <h1 className="text-xl font-bold">Admin</h1>
             <p className="text-xs text-white/40">Actualización en vivo</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="/scanner"
+              target="_blank"
+              className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
+            >
+              Scanner
+            </a>
             <a
               href="/"
               target="_blank"
@@ -157,6 +213,18 @@ export function AdminDashboard() {
       </nav>
 
       <main className="mx-auto max-w-6xl px-4 py-8">
+        {toast && (
+          <p
+            className={`mb-6 rounded-lg px-4 py-3 text-sm ${
+              toast.type === "success"
+                ? "bg-green-500/10 text-green-400"
+                : "bg-red-500/10 text-red-400"
+            }`}
+          >
+            {toast.text}
+          </p>
+        )}
+
         {tab === "resumen" && stats && (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
@@ -223,9 +291,10 @@ export function AdminDashboard() {
                       {o.estado === "aprobado" && (
                         <button
                           onClick={() => handleRefund(o.id)}
-                          className="text-xs text-red-400 hover:underline"
+                          disabled={actionLoading === o.id}
+                          className="text-xs text-red-400 hover:underline disabled:opacity-50"
                         >
-                          Reembolsar
+                          {actionLoading === o.id ? "..." : "Reembolsar"}
                         </button>
                       )}
                     </td>
@@ -274,9 +343,10 @@ export function AdminDashboard() {
                       {!t.cancelado && !t.usado && (
                         <button
                           onClick={() => handleCancel(t.id)}
-                          className="text-xs text-red-400 hover:underline"
+                          disabled={actionLoading === t.id}
+                          className="text-xs text-red-400 hover:underline disabled:opacity-50"
                         >
-                          Dar de baja
+                          {actionLoading === t.id ? "..." : "Dar de baja"}
                         </button>
                       )}
                     </td>
@@ -296,11 +366,6 @@ export function AdminDashboard() {
 
         {tab === "apariencia" && evento && (
           <form onSubmit={handleSaveEvento} className="max-w-2xl space-y-4">
-            {msg && (
-              <p className="rounded-lg bg-green-500/10 px-4 py-2 text-sm text-green-400">
-                {msg}
-              </p>
-            )}
             <Field label="Nombre del evento" value={evento.nombre} onChange={(v) => setEvento({ ...evento, nombre: v })} />
             <div>
               <label className="mb-1 block text-sm text-white/60">
@@ -319,12 +384,33 @@ export function AdminDashboard() {
               />
               <p className="mt-1 text-xs text-white/40">Hora Argentina (24 h, ej. 20:00)</p>
             </div>
-            <Field label="URL del flyer (hero)" value={evento.flyerUrl} onChange={(v) => setEvento({ ...evento, flyerUrl: v })} />
-            <Field label="URL del logo" value={evento.logoUrl} onChange={(v) => setEvento({ ...evento, logoUrl: v })} />
+            <ImageUploadField
+              label="Flyer (hero)"
+              kind="flyer"
+              eventoId={evento.id}
+              value={evento.flyerUrl}
+              onChange={(url) => handleImageUploaded("flyerUrl", url)}
+              onError={(m) => showToast("error", m)}
+              previewClassName="h-48 w-full"
+            />
+            <ImageUploadField
+              label="Logo"
+              kind="logo"
+              eventoId={evento.id}
+              value={evento.logoUrl}
+              onChange={(url) => handleImageUploaded("logoUrl", url)}
+              onError={(m) => showToast("error", m)}
+              previewClassName="h-24 w-24"
+            />
             <Field label="Color primario (#hex)" value={evento.colorPrimario} onChange={(v) => setEvento({ ...evento, colorPrimario: v })} />
             <Field label="Color secundario (#hex)" value={evento.colorSecundario} onChange={(v) => setEvento({ ...evento, colorSecundario: v })} />
             <Field label="Descripción" value={evento.descripcion} onChange={(v) => setEvento({ ...evento, descripcion: v })} multiline />
             <Field label="Lugar" value={evento.lugar} onChange={(v) => setEvento({ ...evento, lugar: v })} />
+            <Field
+              label="Google Maps (URL)"
+              value={evento.mapsUrl}
+              onChange={(v) => setEvento({ ...evento, mapsUrl: v })}
+            />
             <Field label="WhatsApp (54911...)" value={evento.contactoWhatsapp} onChange={(v) => setEvento({ ...evento, contactoWhatsapp: v })} />
             <Field label="Email contacto" value={evento.contactoEmail} onChange={(v) => setEvento({ ...evento, contactoEmail: v })} />
             <Field label="Instagram (@usuario)" value={evento.contactoInstagram} onChange={(v) => setEvento({ ...evento, contactoInstagram: v })} />
@@ -361,9 +447,6 @@ export function AdminDashboard() {
             >
               {saving ? "Guardando..." : "Guardar cambios"}
             </button>
-            <p className="text-xs text-white/40">
-              Fase B: upload de imágenes a Supabase Storage. Por ahora usá URLs.
-            </p>
           </form>
         )}
 

@@ -5,8 +5,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "PaginaQR — Entradas",
-  description: "Sistema de venta de entradas con QR",
+  title: "JR Eventos — Entradas",
+  description: "Comprá entradas para eventos con QR — Junior Eventos",
 };
 
 export default function RootLayout({

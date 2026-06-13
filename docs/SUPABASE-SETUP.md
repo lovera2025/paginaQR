@@ -15,6 +15,14 @@ Deberías ver: `Success. No rows returned` (o similar).
 
 **Verificar:** Table Editor → deben existir `eventos`, `ordenes`, `tickets`, `activity_log` y una fila en `eventos`.
 
+## Paso 1b — Storage para upload de imágenes (admin)
+
+1. SQL Editor → **New query**
+2. Pegá el contenido de `supabase/storage.sql` y **Run**
+3. Verificá en **Storage** → bucket `eventos` (público)
+
+Sin este paso, el botón **Subir imagen** en admin fallará.
+
 ## Paso 2 — Variables de entorno
 
 1. Supabase → **Project Settings** (engranaje) → **API**

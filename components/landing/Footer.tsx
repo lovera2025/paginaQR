@@ -75,8 +75,16 @@ export function Footer({ evento }: FooterProps) {
           </div>
         </div>
 
-        <div className="mt-10 border-t border-white/10 pt-6 text-center text-xs text-white/40">
-          © {new Date().getFullYear()} {evento.nombre} — Todos los derechos reservados
+        <div className="mt-10 flex flex-col items-center gap-3 border-t border-white/10 pt-6 text-center text-xs text-white/40">
+          <a
+            href="/admin"
+            className="text-white/30 transition hover:text-white/60"
+          >
+            Admin
+          </a>
+          <p>
+            © {new Date().getFullYear()} {evento.nombre} — Todos los derechos reservados
+          </p>
         </div>
       </div>
     </footer>
