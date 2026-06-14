@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { SEED_EVENTO } from "./seed";
 import { sendOrderConfirmationEmail } from "@/lib/email/send";
+import { canComprarPublico } from "@/lib/evento/estado";
 import type {
   ActivityLog,
   AdminStats,
@@ -31,6 +32,9 @@ function getStore(): MockStore {
       activity: [],
     };
   }
+  if (!global.__mockStore.evento.estado) {
+    global.__mockStore.evento.estado = "borrador";
+  }
   return global.__mockStore;
 }
 
@@ -52,12 +56,17 @@ export function getEventoActivo(): Evento | null {
 
 export function updateEvento(data: Partial<Evento>): Evento {
   const store = getStore();
-  store.evento = { ...store.evento, ...data };
+  const appearance = { ...data };
+  delete appearance.estado;
+  delete appearance.activo;
+  delete appearance.id;
+  store.evento = { ...store.evento, ...appearance };
   return store.evento;
 }
 
 export function countTicketsActivos(): number {
-  return getStore().tickets.filter((t) => !t.cancelado).length;
+  const { evento, tickets } = getStore();
+  return tickets.filter((t) => t.eventoId === evento.id && !t.cancelado).length;
 }
 
 export function createOrdenPendiente(input: {
@@ -69,6 +78,8 @@ export function createOrdenPendiente(input: {
   const evento = store.evento;
 
   if (!evento.activo) return { error: "No hay evento activo" };
+  if (!canComprarPublico(evento.estado))
+    return { error: "Las ventas están cerradas para este evento" };
   if (input.cantidad < 1 || input.cantidad > 10)
     return { error: "Cantidad inválida (1-10)" };
   if (!input.compradorNombre.trim() || !input.compradorEmail.trim())
@@ -273,11 +284,15 @@ export function refundOrden(ordenId: string): { orden: Orden } | { error: string
 }
 
 export function getOrdenes(): Orden[] {
-  return [...getStore().ordenes];
+  const { evento, ordenes } = getStore();
+  if (!evento.activo) return [];
+  return ordenes.filter((o) => o.eventoId === evento.id);
 }
 
 export function getTickets(): Ticket[] {
-  return [...getStore().tickets];
+  const { evento, tickets } = getStore();
+  if (!evento.activo) return [];
+  return tickets.filter((t) => t.eventoId === evento.id);
 }
 
 export function getActivity(): ActivityLog[] {
@@ -286,17 +301,30 @@ export function getActivity(): ActivityLog[] {
 
 export function getAdminStats(): AdminStats {
   const store = getStore();
-  const tickets = store.tickets;
+  if (!store.evento.activo) {
+    return {
+      vendidasActivas: 0,
+      recaudado: 0,
+      sinUsar: 0,
+      ingresaron: 0,
+      canceladas: 0,
+      reembolsado: 0,
+      capacidad: 0,
+      disponibles: 0,
+      totalOrdenes: 0,
+    };
+  }
+  const tickets = getTickets();
   const activas = tickets.filter((t) => !t.cancelado);
   const canceladas = tickets.filter((t) => t.cancelado);
   const sinUsar = activas.filter((t) => !t.usado);
   const ingresaron = activas.filter((t) => t.usado);
 
-  const recaudado = store.ordenes
+  const recaudado = getOrdenes()
     .filter((o) => o.estado === "aprobado")
     .reduce((sum, o) => sum + o.montoTotal, 0);
 
-  const reembolsado = store.ordenes
+  const reembolsado = getOrdenes()
     .filter((o) => o.estado === "reembolsado")
     .reduce((sum, o) => sum + o.montoTotal, 0);
 
@@ -309,6 +337,49 @@ export function getAdminStats(): AdminStats {
     reembolsado,
     capacidad: store.evento.capacidad,
     disponibles: store.evento.capacidad - activas.length,
-    totalOrdenes: store.ordenes.filter((o) => o.estado === "aprobado").length,
+    totalOrdenes: getOrdenes().filter((o) => o.estado === "aprobado").length,
   };
+}
+
+export function resetVentasEventoActivo(): { ok: true } | { error: string } {
+  const store = getStore();
+  if (!store.evento.activo) return { error: "No hay evento activo" };
+  if (store.evento.estado !== "borrador") {
+    return { error: "Solo se puede reiniciar ventas en borrador (modo prueba)" };
+  }
+
+  const eventoId = store.evento.id;
+  store.ordenes = store.ordenes.filter((o) => o.eventoId !== eventoId);
+  store.tickets = store.tickets.filter((t) => t.eventoId !== eventoId);
+  store.activity = [];
+
+  return { ok: true };
+}
+
+export function abrirVentaEvento(): { evento: Evento } | { error: string } {
+  const store = getStore();
+  if (!store.evento.activo) return { error: "No hay evento activo" };
+  if (store.evento.estado !== "borrador") {
+    return { error: "Solo se puede abrir venta desde borrador" };
+  }
+  store.evento.estado = "venta";
+  return { evento: store.evento };
+}
+
+export function cerrarEventoActivo(): { evento: Evento } | { error: string } {
+  const store = getStore();
+  if (!store.evento.activo) return { error: "No hay evento activo" };
+  if (store.evento.estado !== "venta") {
+    return { error: "Solo se puede cerrar un evento en venta" };
+  }
+
+  for (const orden of store.ordenes) {
+    if (orden.eventoId === store.evento.id && orden.estado === "pendiente") {
+      orden.estado = "rechazado";
+    }
+  }
+
+  store.evento.estado = "finalizado";
+  store.evento.activo = false;
+  return { evento: store.evento };
 }

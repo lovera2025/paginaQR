@@ -1,5 +1,7 @@
 export type OrdenEstado = "pendiente" | "aprobado" | "rechazado" | "reembolsado";
 
+export type EventoEstado = "borrador" | "venta" | "finalizado";
+
 export type ActivityTipo = "venta" | "ingreso" | "baja" | "reembolso";
 
 export interface Evento {
@@ -9,6 +11,7 @@ export interface Evento {
   precio: number;
   capacidad: number;
   activo: boolean;
+  estado: EventoEstado;
   logoUrl: string;
   flyerUrl: string;
   colorPrimario: string;

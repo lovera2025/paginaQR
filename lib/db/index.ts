@@ -82,6 +82,24 @@ export async function getAdminStats() {
   return shouldUseSupabase() ? supabase.getAdminStats() : mock.getAdminStats();
 }
 
+export async function resetVentasEventoActivo() {
+  return shouldUseSupabase()
+    ? supabase.resetVentasEventoActivo()
+    : mock.resetVentasEventoActivo();
+}
+
+export async function abrirVentaEvento() {
+  return shouldUseSupabase()
+    ? supabase.abrirVentaEvento()
+    : mock.abrirVentaEvento();
+}
+
+export async function cerrarEventoActivo() {
+  return shouldUseSupabase()
+    ? supabase.cerrarEventoActivo()
+    : mock.cerrarEventoActivo();
+}
+
 export function getDbMode(): "supabase" | "mock" {
   return shouldUseSupabase() ? "supabase" : "mock";
 }

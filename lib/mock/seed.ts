@@ -7,6 +7,7 @@ export const SEED_EVENTO: Evento = {
   precio: 15000,
   capacidad: 300,
   activo: true,
+  estado: "borrador",
   logoUrl: "/flyer.jpeg",
   flyerUrl: "/flyer.jpeg",
   colorPrimario: "#FFCC00",

@@ -7,6 +7,7 @@ import {
   mapTicket,
 } from "./mappers";
 import { sendOrderConfirmationEmail } from "@/lib/email/send";
+import { canComprarPublico } from "@/lib/evento/estado";
 import type {
   ActivityLog,
   AdminStats,
@@ -46,10 +47,11 @@ async function trySendConfirmationEmail(
   return data ? mapOrden(data) : { ...orden, emailSentAt: new Date().toISOString() };
 }
 
-async function countTicketsActivos(): Promise<number> {
+async function countTicketsActivos(eventoId: string): Promise<number> {
   const { count } = await db()
     .from("tickets")
     .select("*", { count: "exact", head: true })
+    .eq("evento_id", eventoId)
     .eq("cancelado", false);
   return count ?? 0;
 }
@@ -69,9 +71,14 @@ export async function updateEvento(data: Partial<Evento>): Promise<Evento> {
   const evento = await getEventoActivo();
   if (!evento) throw new Error("No hay evento activo");
 
+  const appearance = { ...data };
+  delete appearance.estado;
+  delete appearance.activo;
+  delete appearance.id;
+
   const { data: updated, error } = await db()
     .from("eventos")
-    .update(mapEventoToRow(data))
+    .update(mapEventoToRow(appearance))
     .eq("id", evento.id)
     .select()
     .single();
@@ -87,12 +94,14 @@ export async function createOrdenPendiente(input: {
 }): Promise<{ orden: Orden } | { error: string }> {
   const evento = await getEventoActivo();
   if (!evento) return { error: "No hay evento activo" };
+  if (!canComprarPublico(evento.estado))
+    return { error: "Las ventas están cerradas para este evento" };
   if (input.cantidad < 1 || input.cantidad > 10)
     return { error: "Cantidad inválida (1-10)" };
   if (!input.compradorNombre.trim() || !input.compradorEmail.trim())
     return { error: "Nombre y email son obligatorios" };
 
-  const activos = await countTicketsActivos();
+  const activos = await countTicketsActivos(evento.id);
   if (activos + input.cantidad > evento.capacidad)
     return { error: `Solo quedan ${evento.capacidad - activos} entradas` };
 
@@ -141,9 +150,9 @@ export async function approveOrden(
   }
   if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
 
-  const activos = await countTicketsActivos();
   const evento = await getEventoActivo();
   if (!evento) return { error: "No hay evento activo" };
+  const activos = await countTicketsActivos(evento.id);
   if (activos + orden.cantidad > evento.capacidad)
     return { error: "Capacidad agotada" };
 
@@ -339,17 +348,23 @@ export async function refundOrden(
 }
 
 export async function getOrdenes(): Promise<Orden[]> {
+  const evento = await getEventoActivo();
+  if (!evento) return [];
   const { data } = await db()
     .from("ordenes")
     .select("*")
+    .eq("evento_id", evento.id)
     .order("created_at", { ascending: false });
   return (data ?? []).map(mapOrden);
 }
 
 export async function getTickets(): Promise<Ticket[]> {
+  const evento = await getEventoActivo();
+  if (!evento) return [];
   const { data } = await db()
     .from("tickets")
     .select("*")
+    .eq("evento_id", evento.id)
     .order("created_at", { ascending: false });
   return (data ?? []).map(mapTicket);
 }
@@ -365,6 +380,19 @@ export async function getActivity(): Promise<ActivityLog[]> {
 
 export async function getAdminStats(): Promise<AdminStats> {
   const evento = await getEventoActivo();
+  if (!evento) {
+    return {
+      vendidasActivas: 0,
+      recaudado: 0,
+      sinUsar: 0,
+      ingresaron: 0,
+      canceladas: 0,
+      reembolsado: 0,
+      capacidad: 0,
+      disponibles: 0,
+      totalOrdenes: 0,
+    };
+  }
   const tickets = await getTickets();
   const ordenes = await getOrdenes();
 
@@ -392,4 +420,78 @@ export async function getAdminStats(): Promise<AdminStats> {
     disponibles: (evento?.capacidad ?? 0) - activas.length,
     totalOrdenes: ordenes.filter((o) => o.estado === "aprobado").length,
   };
+}
+
+export async function resetVentasEventoActivo(): Promise<
+  { ok: true } | { error: string }
+> {
+  const evento = await getEventoActivo();
+  if (!evento) return { error: "No hay evento activo" };
+  if (evento.estado !== "borrador") {
+    return { error: "Solo se puede reiniciar ventas en borrador (modo prueba)" };
+  }
+
+  const { error: ordenesError } = await db()
+    .from("ordenes")
+    .delete()
+    .eq("evento_id", evento.id);
+
+  if (ordenesError) return { error: ordenesError.message };
+
+  const { error: activityError } = await db()
+    .from("activity_log")
+    .delete()
+    .gte("created_at", "1970-01-01T00:00:00Z");
+
+  if (activityError) return { error: activityError.message };
+
+  return { ok: true };
+}
+
+export async function abrirVentaEvento(): Promise<
+  { evento: Evento } | { error: string }
+> {
+  const evento = await getEventoActivo();
+  if (!evento) return { error: "No hay evento activo" };
+  if (evento.estado !== "borrador") {
+    return { error: "Solo se puede abrir venta desde borrador" };
+  }
+
+  const { data, error } = await db()
+    .from("eventos")
+    .update({ estado: "venta" })
+    .eq("id", evento.id)
+    .eq("estado", "borrador")
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+  return { evento: mapEvento(data) };
+}
+
+export async function cerrarEventoActivo(): Promise<
+  { evento: Evento } | { error: string }
+> {
+  const evento = await getEventoActivo();
+  if (!evento) return { error: "No hay evento activo" };
+  if (evento.estado !== "venta") {
+    return { error: "Solo se puede cerrar un evento en venta" };
+  }
+
+  await db()
+    .from("ordenes")
+    .update({ estado: "rechazado" })
+    .eq("evento_id", evento.id)
+    .eq("estado", "pendiente");
+
+  const { data, error } = await db()
+    .from("eventos")
+    .update({ estado: "finalizado", activo: false })
+    .eq("id", evento.id)
+    .eq("estado", "venta")
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+  return { evento: mapEvento(data) };
 }

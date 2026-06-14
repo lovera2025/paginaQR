@@ -14,6 +14,7 @@ export function mapEvento(row: EventoRow): Evento {
     precio: Number(row.precio),
     capacidad: row.capacidad,
     activo: row.activo,
+    estado: (row.estado as Evento["estado"]) || "borrador",
     logoUrl: row.logo_url,
     flyerUrl: row.flyer_url,
     colorPrimario: row.color_primario,
@@ -39,6 +40,7 @@ export function mapEventoToRow(
   if (evento.precio !== undefined) row.precio = evento.precio;
   if (evento.capacidad !== undefined) row.capacidad = evento.capacidad;
   if (evento.activo !== undefined) row.activo = evento.activo;
+  if (evento.estado !== undefined) row.estado = evento.estado;
   if (evento.logoUrl !== undefined) row.logo_url = evento.logoUrl;
   if (evento.flyerUrl !== undefined) row.flyer_url = evento.flyerUrl;
   if (evento.colorPrimario !== undefined) row.color_primario = evento.colorPrimario;

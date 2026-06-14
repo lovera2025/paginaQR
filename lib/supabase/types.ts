@@ -5,6 +5,7 @@ export interface EventoRow {
   precio: number;
   capacidad: number;
   activo: boolean;
+  estado: string;
   logo_url: string;
   flyer_url: string;
   color_primario: string;

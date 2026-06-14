@@ -27,6 +27,15 @@ En Supabase → SQL Editor, ejecutá `supabase/migrations/email_sent_at.sql`:
 ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMPTZ;
 ```
 
+Migración estados evento (`supabase/migrations/evento_estado.sql`):
+
+```sql
+ALTER TABLE eventos ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'borrador';
+ALTER TABLE eventos DROP CONSTRAINT IF EXISTS eventos_estado_check;
+ALTER TABLE eventos ADD CONSTRAINT eventos_estado_check
+  CHECK (estado IN ('borrador', 'venta', 'finalizado'));
+```
+
 Después de agregar variables → **Redeploy**.
 
 ## Probar la demo
