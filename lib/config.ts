@@ -30,3 +30,15 @@ export function isSupabaseConfigured(): boolean {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   return Boolean(url && key);
 }
+
+export function isResendConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
+}
+
+export function getResendFrom(): string {
+  return process.env.RESEND_FROM?.trim() || "JR Eventos <onboarding@resend.dev>";
+}
+
+export function getAppUrl(): string {
+  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "http://localhost:3000";
+}

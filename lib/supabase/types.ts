@@ -30,6 +30,7 @@ export interface OrdenRow {
   monto_total: number;
   estado: string;
   created_at: string;
+  email_sent_at: string | null;
 }
 
 export interface TicketRow {

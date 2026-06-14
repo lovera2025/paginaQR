@@ -6,6 +6,7 @@ import {
   mapOrden,
   mapTicket,
 } from "./mappers";
+import { sendOrderConfirmationEmail } from "@/lib/email/send";
 import type {
   ActivityLog,
   AdminStats,
@@ -23,6 +24,26 @@ function db() {
 
 async function logActivity(tipo: ActivityLog["tipo"], mensaje: string) {
   await db().from("activity_log").insert({ tipo, mensaje });
+}
+
+async function trySendConfirmationEmail(
+  ordenId: string,
+  orden: Orden,
+  tickets: Ticket[],
+  evento: Evento
+): Promise<Orden> {
+  const result = await sendOrderConfirmationEmail({ orden, tickets, evento });
+  if (!result.sent) return orden;
+
+  const { data } = await db()
+    .from("ordenes")
+    .update({ email_sent_at: new Date().toISOString() })
+    .eq("id", ordenId)
+    .is("email_sent_at", null)
+    .select()
+    .maybeSingle();
+
+  return data ? mapOrden(data) : { ...orden, emailSentAt: new Date().toISOString() };
 }
 
 async function countTicketsActivos(): Promise<number> {
@@ -106,6 +127,16 @@ export async function approveOrden(
 
   if (orden.estado === "aprobado") {
     const existing = await getTicketsByOrden(ordenId);
+    const evento = await getEventoActivo();
+    if (evento && existing.length > 0) {
+      const ordenWithEmail = await trySendConfirmationEmail(
+        ordenId,
+        orden,
+        existing,
+        evento
+      );
+      return { orden: ordenWithEmail, tickets: existing };
+    }
     return { orden, tickets: existing };
   }
   if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
@@ -149,11 +180,14 @@ export async function approveOrden(
     `Venta: ${orden.compradorNombre}, ${orden.cantidad} entrada(s), $${orden.montoTotal.toLocaleString("es-AR")}`
   );
 
-  console.log(
-    `[EMAIL SIMULADO] Enviado a ${orden.compradorEmail} — ${tickets.length} QR(s) para ${evento.nombre}`
+  const ordenWithEmail = await trySendConfirmationEmail(
+    ordenId,
+    updatedOrden,
+    tickets,
+    evento
   );
 
-  return { orden: updatedOrden, tickets };
+  return { orden: ordenWithEmail, tickets };
 }
 
 export async function rejectOrden(

@@ -33,6 +33,7 @@ export interface Orden {
   montoTotal: number;
   estado: OrdenEstado;
   createdAt: string;
+  emailSentAt: string | null;
 }
 
 export interface Ticket {

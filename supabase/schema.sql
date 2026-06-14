@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS ordenes (
   monto_total NUMERIC(10,2) NOT NULL,
   estado TEXT NOT NULL DEFAULT 'pendiente'
     CHECK (estado IN ('pendiente', 'aprobado', 'rechazado', 'reembolsado')),
+  email_sent_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

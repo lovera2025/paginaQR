@@ -1,7 +1,7 @@
 # PaginaQR / JR Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: 12 junio 2026 (noche — Bloque 1 deployado)
+> Última actualización: 13 junio 2026 — spec email confirmación documentada; **implementar en próximo chat**
 
 ## Meta inmediata
 
@@ -35,14 +35,17 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 | Feedback reembolso / baja en admin | ✅ Bloque 1 (vie 12) |
 | Google Maps en admin | ✅ Bloque 1 (vie 12) |
 | Formato fecha landing (`· 20:00 hs`) | ✅ vie 12 — commit `14c9a5a` |
-| Mercado Pago (Checkout Pro) | ❌ Bloque 2 — sáb 13 |
-| Resend (emails con QR) | ❌ Bloque 3 — dom 14 |
+| Resend (emails con QR) | ✅ Implementado — deploy + vars Vercel + migración SQL |
+| Reiniciar ventas (admin) | ❌ Planificado — solo evento en borrador |
+| Historial eventos pasados | ❌ Planificado — post `finalizado` |
+| Estados evento (borrador/venta/finalizado) | ❌ Planificado |
+| Mercado Pago (Checkout Pro) | ❌ Después de Resend + reinicio probados |
 | PIN fuerte en producción | ❌ dom/lun |
 | Dominio propio | ❌ Opcional (ej. entradas.jreventos.com) |
 
-**Momento exacto:** Bloque 1 **en producción** (Vercel redeploy hecho). Compra **simulada**. Upload requiere `supabase/storage.sql` si aún no se corrió. **Siguiente sesión:** Bloque 2 MP (sáb 13) → Bloque 3 Resend (dom 14) → cierre lun 15 tarde.
+**Momento exacto:** Resend en código. Compra **simulada** en Vercel. **Próximo:** reiniciar ventas + estados/historial → MP real.
 
-**Commits recientes:** `d152e79` (Bloque 1) · `14c9a5a` (fecha `· hs`)
+**Commits recientes:** `d152e79` (Bloque 1) · `14c9a5a` (fecha `· hs`) · `c6bee6f` (docs)
 
 ---
 
@@ -100,7 +103,253 @@ Sistema de venta de entradas para eventos (Argentina). Marca: **Junior Eventos /
 ### `tickets` — solo existen si orden aprobada. Campos: usado, cancelado
 **NO hay `pagado` en tickets.** Varias entradas en una compra = **un ticket/QR por entrada** (no uno solo para toda la orden).
 
-**Pendiente Fase C:** snapshot de branding al comprar (logo/nombre evento) para emails históricos.
+**Pendiente Fase C:** snapshot de branding al comprar · campo `email_sent_at` en orden (idempotencia mail).
+
+---
+
+## Plan lógico anti-bugs (decisiones acordadas)
+
+Objetivo: construir en capas, probar cada pieza sin ensuciar datos reales, y no mezclar “prueba” con “evento archivado”.
+
+### Orden de implementación (actualizado)
+
+| # | Bloque | Para qué |
+|---|--------|----------|
+| 1 | **Resend** | Mail real con logo + 1 QR por entrada; funciona con **pago simulado** |
+| 2 | **Reiniciar ventas** | Limpiar pruebas y contadores; QRs viejos invalidados en scanner |
+| 3 | **Estados evento** | `borrador` → `venta` → `finalizado` |
+| 4 | **Historial** | Eventos pasados con stats + lista compradores (solo lectura) |
+| 5 | **Mercado Pago** | Mismo `approveOrden` + mail; plata real |
+| 6 | **Ops prod** | PIN fuerte, reembolso MP, `APP_MODE=production` |
+
+### Ciclo de prueba (sin MP)
+
+```
+Reiniciar ventas → compra simulada → mail Resend → /compra/exito → scanner
+→ reembolso (opcional) → Reiniciar otra vez
+```
+
+### Capacidad y contadores (cómo funciona hoy)
+
+- **Capacidad** = máximo entradas a vender (Admin → Apariencia). 1 ticket = 1 persona = 1 QR.
+- **Contadores** no se cargan a mano: se calculan de `tickets` + `ordenes`.
+- **Disponibles** = `capacidad − tickets activos (no cancelados)`.
+- Al comprar, el servidor bloquea si no hay cupo (`lib/supabase/queries.ts`).
+- **Pendiente:** filtrar stats/contadores siempre por `evento_id` del evento activo.
+
+### Idempotencia (evitar bugs)
+
+| Acción | Regla |
+|--------|--------|
+| Mail | Solo enviar si `email_sent_at` es null en la orden |
+| Webhook MP (futuro) | No duplicar tickets si mismo `mp_payment_id` |
+| Reiniciar | Botón disabled mientras corre; confirmación `REINICIAR` |
+
+---
+
+## Estados del evento e historial
+
+### Estados (`eventos.estado` — a implementar)
+
+| Estado | Venta | Reiniciar ventas | Uso |
+|--------|-------|------------------|-----|
+| `borrador` | No (o solo prueba interna) | ✅ Sí | Config + pruebas Resend/scanner |
+| `venta` | ✅ Pública | ❌ No | Evento del 20 con MP |
+| `finalizado` | ❌ | ❌ | **Historial** — no borrar datos |
+
+Solo **un** evento con `activo = true` en borrador/venta a la vez.
+
+### Dos botones distintos (no confundir)
+
+| Botón | Cuándo | Efecto |
+|-------|--------|--------|
+| **Reiniciar ventas** | Solo `borrador` / pruebas | DELETE órdenes + tickets (CASCADE) + activity del evento actual |
+| **Cerrar evento** | Post-fiesta real | `estado = finalizado`, `activo = false`; **datos intactos** |
+
+**Nunca** usar Reiniciar después de ventas reales — se pierde historial y trazabilidad de plata.
+
+### Historial — qué mostrar por evento pasado
+
+**Resumen:** vendidas, capacidad, recaudado, reembolsado, ingresaron, sin usar, canceladas.
+
+**Detalle (solo lectura):**
+- Lista **compradores** (órdenes: nombre, email, cantidad, monto, estado, fecha)
+- Detalle **entradas** por orden (nº entrada, usado/cancelado, hora ingreso)
+
+Admin → pestaña **Historial** → elegir evento → ver stats + tablas.
+
+### Cerrar evento → nuevo evento
+
+1. Botón **Cerrar evento y archivar** → `finalizado`
+2. Rechazar órdenes `pendientes` si quedaron
+3. **Crear nuevo evento** (borrador) para la próxima fiesta
+4. El evento del 20 queda consultable para siempre en Historial
+
+---
+
+## Reiniciar ventas — especificación (a implementar)
+
+- API: `POST /api/admin/reset-ventas` · solo rol admin
+- UI: Admin → Resumen o Apariencia · botón rojo con confirmación
+- Usuario debe escribir **`REINICIAR`** para confirmar
+- Solo si `evento.estado === 'borrador'` (o flag explícito “modo prueba”)
+- Borrar: `ordenes WHERE evento_id = ?` (tickets CASCADE) · `activity_log` (global OK si un solo evento)
+- **No** borrar fila `eventos` ni imágenes Storage
+- Toast éxito/error · refresh stats Realtime
+- Efecto: contadores en 0 · QRs viejos → scanner “Entrada no válida”
+
+---
+
+## Resend — guía setup (gestión, antes/durante código)
+
+**Proveedor:** [Resend](https://resend.com) — servicio confiable, API simple, usado en producción con Next.js/Vercel. **Plan free: $0** — 3.000 mails/mes, 100/día (alcanza para ~300 entradas en un evento). No usar SMTP casero para QR transaccionales.
+
+### Paso 1 — Cuenta
+
+1. Entrá a https://resend.com/signup
+2. Registrate (GitHub o email)
+3. Verificá tu email de cuenta
+
+### Paso 2 — API Key
+
+1. Dashboard → **API Keys** (https://resend.com/api-keys)
+2. **Create API Key** → nombre ej. `JR Eventos dev`
+3. Permiso: **Sending access** (suficiente)
+4. Copiá la key (`re_...`) — **solo se muestra una vez**
+5. Pegar en `.env.local` y Vercel (nunca en GitHub):
+
+```env
+RESEND_API_KEY=re_xxxxxxxx
+RESEND_FROM=JR Eventos <onboarding@resend.dev>
+```
+
+### Paso 3 — Probar sin dominio propio (recomendado ahora)
+
+Resend incluye remitente de prueba:
+
+- **From:** `onboarding@resend.dev`
+- Podés enviar a **tu Gmail** (y emails que verifiques en Resend → **Domains** → sin dominio, en plan free a veces solo destinatarios verificados)
+
+Para pruebas: usá **tu propio Gmail** como comprador en `/comprar`.
+
+### Paso 4 — Producción (antes del evento 20, opcional)
+
+1. Resend → **Domains** → Add domain (ej. dominio del organizador)
+2. Agregar registros DNS (SPF, DKIM) que indica Resend
+3. Cuando verifique: `RESEND_FROM=Entradas <entradas@tudominio.com>`
+4. Mejor deliverability a Gmail de compradores
+
+### Paso 5 — Variables completas (local + Vercel)
+
+```env
+RESEND_API_KEY=re_...
+RESEND_FROM=JR Eventos <onboarding@resend.dev>   # prueba
+NEXT_PUBLIC_APP_URL=https://jreventos-entradas.vercel.app
+```
+
+### Paso 6 — Qué hará el código (próxima sesión)
+
+> **Implementado** en `lib/email/send.ts` + `lib/email/template.ts` — hook en `approveOrden`.
+
+- Al `approveOrden` (mock o MP): enviar mail según spec visual
+- Campo `email_sent_at` en `ordenes` — no reenviar si ya enviado
+- Snapshot branding en orden al aprobar
+- Si no hay `RESEND_API_KEY`: seguir con `[EMAIL SIMULADO]` en logs (como hoy)
+
+### Paso 7 — Probar
+
+1. `RESEND_API_KEY` en `.env.local` · `npm run dev`
+2. `/comprar` → tu Gmail → simular pago exitoso
+3. Revisar bandeja (y spam) · QR escaneable en scanner
+4. Misma compra no debe duplicar mail (idempotencia)
+
+Guía oficial: https://resend.com/docs/send-with-nextjs
+
+---
+
+## Email de confirmación — diseño acordado (a implementar)
+
+> **Estado:** implementado (flyer hero + QR grande por entrada).
+
+### Objetivo / sensación
+
+El mail no es un texto plano con un QR chico. Es la **confirmación visual del evento**: el comprador debe sentir *“compré para ESTA fiesta, acá está MI entrada, esto muestro en la puerta”*. Debe ser **muy llamativo**, al nivel del flyer de la landing.
+
+### Estructura del mail (HTML)
+
+```
+┌─────────────────────────────────────┐
+│  [FLYER — banner ancho full-width]  │  ← hero visual (prioridad)
+│  [logo]  JR Eventos / organizador   │  ← logo chico junto al nombre
+├─────────────────────────────────────┤
+│  NOMBRE DEL EVENTO (grande, bold)   │
+│  Sábado 20 de junio · 20:00 hs      │  ← mismo formatFecha que web
+│  Lugar · [Ver en mapa] si mapsUrl   │
+├─────────────────────────────────────┤
+│  Hola {compradorNombre},            │
+│  Confirmamos tu compra: X entrada(s)│
+├─────────────────────────────────────┤
+│  ┌─ Entrada 1 de 3 ─────────────┐   │  ← repetir por cada ticket
+│  │     [ QR GRANDE en card      │   │
+│  │       blanca, centrado ]     │   │
+│  └──────────────────────────────┘   │
+│  Presentá este QR en la entrada     │
+├─────────────────────────────────────┤
+│  Guardá este mail · Dudas → WhatsApp│
+└─────────────────────────────────────┘
+```
+
+### Reglas de contenido
+
+| Elemento | Regla |
+|----------|--------|
+| **Flyer** | Banner arriba (`evento.flyerUrl`) — **prioridad visual** sobre solo logo |
+| **Logo** | Chico bajo o sobre el flyer (`evento.logoUrl`) |
+| **Nombre evento** | Grande, mismo nombre que la web |
+| **Fecha/hora** | `Sábado … · HH:mm hs` (Argentina) |
+| **Lugar + mapa** | `evento.lugar` + link si `mapsUrl` |
+| **Comprador** | Nombre + cantidad de entradas |
+| **QR** | **Uno por ticket** — grande, fondo blanco, card con borde; `colorPrimario` del evento en acentos |
+| **Varias entradas** | Una card por QR: “Entrada 2 de 3”, etc. |
+| **Footer** | “Guardá este mail”, contacto organizador |
+
+### Snapshot al comprar (anti-bugs)
+
+Guardar en la **orden** (o campos JSON) al `approveOrden`:
+
+- `evento_nombre`, `evento_fecha`, `evento_lugar`, `evento_maps_url`
+- `evento_logo_url`, `evento_flyer_url`
+- `evento_color_primario`, `organizador_nombre`
+
+Así el mail histórico no cambia si el admin edita el evento después.
+
+### Técnico (implementación futura)
+
+| Pieza | Archivo / nota |
+|-------|----------------|
+| QR PNG | `lib/qr/generate.ts` → `generateQrBuffer(ticketId)` |
+| Envío | `lib/email/send.ts` (nuevo) · Resend API |
+| Hook | Tras tickets creados en `approveOrden` (mock + MP) |
+| Idempotencia | `ordenes.email_sent_at` — migración SQL |
+| Imágenes mail | Flyer/logo como URL pública (Supabase Storage o `/public`) |
+| Fallback | Sin `RESEND_API_KEY` → log `[EMAIL SIMULADO]` |
+
+### Asunto del mail (sugerido)
+
+`Tu entrada — {nombre evento} · {fecha corta}`
+
+Ej: `Tu entrada — Fiesta de Promo · 20 jun`
+
+### Prueba visual
+
+1. Compra simulada con **tu Gmail**
+2. Mail debe verse bien en **Gmail móvil** (donde mostrarán el QR en puerta)
+3. Escanear QR del mail en `/scanner` → verde
+4. 3 entradas → 3 cards QR en el mismo mail
+
+### Preferencia visual acordada
+
+**Flyer grande arriba** + logo secundario (no mail minimalista solo con logo).
 
 ---
 
@@ -128,43 +377,35 @@ Sistema de venta de entradas para eventos (Argentina). Marca: **Junior Eventos /
 
 ---
 
-### Sábado 13 — Bloque 2: Mercado Pago
+### Próximo — Resend + reinicio (antes de MP)
 
-- [ ] Checkout Pro: crear preferencia al comprar → redirect a MP
-- [ ] Webhook `/api/webhook-mp` → pago `approved` → `approveOrden`
-- [ ] Idempotencia (mismo pago no duplica tickets)
-- [ ] `/comprar/pago`: redirect real cuando hay `MP_ACCESS_TOKEN`; sin simulación en prod
-- [ ] URLs retorno → `/compra/exito` / `/compra/error`
-
-**Pruebas:**
-- [ ] Compra test con tarjetas MP (sandbox)
-- [ ] 3 entradas → 3 QRs distintos → scanner verde/amarillo OK
+- [ ] Cuenta Resend + `RESEND_API_KEY` en `.env.local` / Vercel
+- [ ] Código: `lib/email/send.ts` + hook en `approveOrden`
+- [ ] Migración: `email_sent_at` en `ordenes`
+- [ ] Email HTML según spec **「Email de confirmación — diseño acordado」** (flyer hero + QR grande por entrada)
+- [ ] Probar con pago simulado + Gmail propio
+- [ ] Botón **Reiniciar ventas** (solo borrador)
+- [ ] `evento.estado` + **Cerrar evento** + pestaña **Historial**
 
 ---
 
-### Domingo 14 — Bloque 3: Email + reembolso + seguridad
+### Mercado Pago (después de mail probado)
 
-- [ ] Resend al aprobar orden — HTML con logo del evento, **1 QR por entrada**
-- [ ] Snapshot logo/nombre evento al momento de la compra (orden o ticket)
-- [ ] Reembolso admin → API refund MP + cancelar tickets en DB
-- [ ] `APP_MODE=production` + PINs nuevos en Vercel
-- [ ] Desactivar simulación de pago en producción
+- [ ] Checkout Pro + webhook `/api/webhook-mp`
+- [ ] Idempotencia pago · sacar simulación con token en prod
+- [ ] Reembolso API MP desde admin
 
-**Pruebas:**
-- [ ] Mail llega a Gmail real
-- [ ] Reembolso → scanner muestra "cancelada"
-- [ ] Flujo completo en celular
+**Pruebas MP:**
+- [ ] Compra test tarjetas sandbox
+- [ ] 3 entradas → 3 QRs → scanner OK
 
 ---
 
-### Lunes 15 — Entrega operativa (tarde)
+### Cierre producción (lun 15)
 
-**Mañana (solo ajustes, no features nuevas):**
-- [ ] Token MP **producción** en Vercel
-- [ ] **1 compra real chica** — plata en cuenta del hijo + mail + QR + scanner
-- [ ] Scanner en celu de puerta del evento
-
-**Tarde:** demo al jefe — sistema **operativo** de punta a punta.
+- [ ] Reembolso MP + PIN fuerte + `APP_MODE=production`
+- [ ] Token MP producción · 1 compra real chica
+- [ ] Demo al jefe
 
 ---
 
@@ -243,11 +484,11 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 
 ## Fase C — Checklist (meta lun 15)
 
+- [ ] Resend — mail según spec diseño (flyer + QR llamativo) + `email_sent_at`
+- [ ] Reiniciar ventas (solo borrador) + estados evento + historial
 - [ ] Mercado Pago Checkout Pro + webhook `/api/webhook-mp`
 - [ ] Reembolso vía API MP desde admin
-- [ ] Resend — email HTML con logo + QR por entrada
 - [ ] Snapshot branding al comprar
-- [ ] Probar tarjetas test + idempotencia webhook
 - [ ] MP token producción + compra real de prueba
 
 ---
@@ -288,12 +529,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 
 | Prioridad | Bloque | Tareas |
 |-----------|--------|--------|
-| 1 | **Sáb 13 — MP** | Checkout Pro, webhook, idempotencia, sacar simulación con token |
-| 2 | **Dom 14 — Email** | Resend, QR por entrada, snapshot logo al comprar |
-| 3 | **Dom 14 — Ops** | Reembolso API MP, PIN fuerte, `APP_MODE=production` |
-| 4 | **Lun 15** | Token MP prod, compra real de prueba, demo al jefe |
+| 1 | **Resend** | API key, mail + QR en `approveOrden`, idempotencia |
+| 2 | **Reiniciar + estados** | borrador/venta/finalizado, reset seguro |
+| 3 | **Historial** | stats + compradores por evento pasado |
+| 4 | **MP** | Checkout Pro, webhook, reembolso MP |
+| 5 | **Lun 15** | PIN prod, compra real, demo jefe |
 
-**Gestión paralela:** Access Token MP test (cuenta del hijo) · API key Resend · PINs admin/scanner
+**Gestión paralela:** `RESEND_API_KEY` (resend.com) · MP test del hijo · PINs admin/scanner
 
 ---
 ## Cómo probar el flujo (simulación — hasta conectar MP)
@@ -320,9 +562,9 @@ npm run update:evento    # actualizar evento demo en Supabase
 
 ## Cómo continuar en un nuevo chat
 
-1. Leer este archivo
+1. Leer este archivo — secciones **Plan anti-bugs**, **Historial**, **Resend**, **Email de confirmación — diseño acordado**
 2. Meta: **operativo lun 15 tarde**, evento **vie 20**
-3. **Siguiente tarea:** Bloque 2 — Mercado Pago Checkout Pro + `/api/webhook-mp`
-4. Verificar: `supabase/storage.sql` ejecutado si upload falla
-5. Credenciales: MP test del hijo + Resend en `.env.local` / Vercel
-6. Probar https://jreventos-entradas.vercel.app (`JR Eventos` en pestaña, Admin en footer)
+3. Usuario dirá **“aplicar Resend / mail”** → entonces implementar spec email + `lib/email/send.ts`
+4. `RESEND_API_KEY` en `.env.local` / Vercel (plan free OK)
+5. Probar: pago simulado → mail Gmail → scanner
+6. Después: reiniciar ventas + historial → MP

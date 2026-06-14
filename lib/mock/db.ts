@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { SEED_EVENTO } from "./seed";
+import { sendOrderConfirmationEmail } from "@/lib/email/send";
 import type {
   ActivityLog,
   AdminStats,
@@ -87,6 +88,7 @@ export function createOrdenPendiente(input: {
     montoTotal: evento.precio * input.cantidad,
     estado: "pendiente",
     createdAt: new Date().toISOString(),
+    emailSentAt: null,
   };
 
   store.ordenes.unshift(orden);
@@ -116,12 +118,31 @@ function createTicketsForOrden(orden: Orden): Ticket[] {
   return created;
 }
 
-export function approveOrden(ordenId: string): { orden: Orden; tickets: Ticket[] } | { error: string } {
+async function trySendConfirmationEmail(
+  orden: Orden,
+  tickets: Ticket[],
+  evento: Evento
+): Promise<Orden> {
+  const result = await sendOrderConfirmationEmail({ orden, tickets, evento });
+  if (!result.sent) return orden;
+  orden.emailSentAt = new Date().toISOString();
+  return orden;
+}
+
+export async function approveOrden(ordenId: string): Promise<{ orden: Orden; tickets: Ticket[] } | { error: string }> {
   const store = getStore();
   const orden = store.ordenes.find((o) => o.id === ordenId);
   if (!orden) return { error: "Orden no encontrada" };
   if (orden.estado === "aprobado") {
     const existing = store.tickets.filter((t) => t.ordenId === ordenId);
+    if (existing.length > 0) {
+      const ordenWithEmail = await trySendConfirmationEmail(
+        orden,
+        existing,
+        store.evento
+      );
+      return { orden: ordenWithEmail, tickets: existing };
+    }
     return { orden, tickets: existing };
   }
   if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
@@ -141,11 +162,9 @@ export function approveOrden(ordenId: string): { orden: Orden; tickets: Ticket[]
     `Venta: ${orden.compradorNombre}, ${orden.cantidad} entrada(s), $${orden.montoTotal.toLocaleString("es-AR")}`
   );
 
-  console.log(
-    `[EMAIL SIMULADO] Enviado a ${orden.compradorEmail} — ${tickets.length} QR(s) para ${store.evento.nombre}`
-  );
+  const ordenWithEmail = await trySendConfirmationEmail(orden, tickets, store.evento);
 
-  return { orden, tickets };
+  return { orden: ordenWithEmail, tickets };
 }
 
 export function rejectOrden(ordenId: string): { orden: Orden } | { error: string } {

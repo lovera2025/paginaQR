@@ -65,6 +65,7 @@ export function mapOrden(row: OrdenRow): Orden {
     montoTotal: Number(row.monto_total),
     estado: row.estado as OrdenEstado,
     createdAt: row.created_at,
+    emailSentAt: row.email_sent_at ?? null,
   };
 }
 
