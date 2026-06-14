@@ -2,11 +2,13 @@ import { generateQrBuffer } from "@/lib/qr/generate";
 import { getAppUrl } from "@/lib/config";
 import type { Evento, Ticket } from "@/types";
 
-export interface ResendAttachment {
-  content: Buffer;
+/** Resend Node SDK expects camelCase — see parseAttachments in resend/dist */
+export interface ResendInlineAttachment {
+  path?: string;
+  content?: string;
   filename: string;
-  content_type: string;
-  content_id: string;
+  contentType?: string;
+  contentId: string;
 }
 
 function absoluteAssetUrl(path: string, appUrl: string): string {
@@ -14,16 +16,6 @@ function absoluteAssetUrl(path: string, appUrl: string): string {
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
   const base = appUrl.replace(/\/$/, "");
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
-}
-
-async function fetchImageBuffer(url: string): Promise<Buffer | null> {
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    return Buffer.from(await res.arrayBuffer());
-  } catch {
-    return null;
-  }
 }
 
 function guessContentType(url: string): string {
@@ -34,18 +26,28 @@ function guessContentType(url: string): string {
   return "image/jpeg";
 }
 
+function filenameFromUrl(url: string, fallback: string): string {
+  try {
+    const name = new URL(url).pathname.split("/").pop();
+    if (name && name.includes(".")) return name;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
 async function attachImageFromUrl(
   url: string,
   cid: string,
-  filename: string
-): Promise<ResendAttachment | null> {
-  const buffer = await fetchImageBuffer(url);
-  if (!buffer || buffer.length === 0) return null;
+  fallbackFilename: string
+): Promise<ResendInlineAttachment | null> {
+  if (!url.startsWith("http://") && !url.startsWith("https://")) return null;
+
   return {
-    content: buffer,
-    filename,
-    content_type: guessContentType(url),
-    content_id: cid,
+    path: url,
+    filename: filenameFromUrl(url, fallbackFilename),
+    contentType: guessContentType(url),
+    contentId: cid,
   };
 }
 
@@ -53,13 +55,13 @@ export async function buildEmailInlineAssets(
   evento: Evento,
   tickets: Ticket[]
 ): Promise<{
-  attachments: ResendAttachment[];
+  attachments: ResendInlineAttachment[];
   flyerCid: string | null;
   logoCid: string | null;
   qrCids: string[];
 }> {
   const appUrl = getAppUrl();
-  const attachments: ResendAttachment[] = [];
+  const attachments: ResendInlineAttachment[] = [];
   const flyerUrl = absoluteAssetUrl(evento.flyerUrl, appUrl);
   const logoUrl = absoluteAssetUrl(evento.logoUrl, appUrl);
 
@@ -83,11 +85,12 @@ export async function buildEmailInlineAssets(
   for (const ticket of tickets) {
     const cid = `qr-${ticket.numeroEntrada}`;
     qrCids.push(cid);
+    const buffer = await generateQrBuffer(ticket.id);
     attachments.push({
-      content: await generateQrBuffer(ticket.id),
+      content: buffer.toString("base64"),
       filename: `entrada-${ticket.numeroEntrada}.png`,
-      content_type: "image/png",
-      content_id: cid,
+      contentType: "image/png",
+      contentId: cid,
     });
   }
 
