@@ -1,6 +1,6 @@
 import { Resend } from "resend";
-import { getAppUrl, getResendFrom, isResendConfigured } from "@/lib/config";
-import { generateQrDataUrl } from "@/lib/qr/generate";
+import { buildEmailInlineAssets } from "@/lib/email/attachments";
+import { getResendFrom, isResendConfigured } from "@/lib/config";
 import { buildConfirmationHtml, buildConfirmationSubject } from "@/lib/email/template";
 import type { Evento, Orden, Ticket } from "@/types";
 
@@ -26,16 +26,16 @@ export async function sendOrderConfirmationEmail(input: {
     return { sent: false, reason: "not_configured" };
   }
 
-  const qrDataUrls = await Promise.all(
-    tickets.map((ticket) => generateQrDataUrl(ticket.id))
-  );
+  const { attachments, flyerCid, logoCid, qrCids } =
+    await buildEmailInlineAssets(evento, tickets);
 
   const html = buildConfirmationHtml({
     orden,
     tickets,
     evento,
-    qrDataUrls,
-    appUrl: getAppUrl(),
+    flyerCid,
+    logoCid,
+    qrCids,
   });
 
   const resend = new Resend(process.env.RESEND_API_KEY);
@@ -44,6 +44,7 @@ export async function sendOrderConfirmationEmail(input: {
     to: orden.compradorEmail,
     subject: buildConfirmationSubject(evento),
     html,
+    attachments,
   });
 
   if (error) {

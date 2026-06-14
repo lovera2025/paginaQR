@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getOrden, getTicketsByOrden } from "@/lib/db";
-import { generateQrDataUrl } from "@/lib/qr/generate";
 
 export async function GET(
   _request: Request,
@@ -15,12 +14,6 @@ export async function GET(
   }
 
   const tickets = (await getTicketsByOrden(params.id)).filter((t) => !t.cancelado);
-  const withQr = await Promise.all(
-    tickets.map(async (ticket) => ({
-      ...ticket,
-      qrDataUrl: await generateQrDataUrl(ticket.id),
-    }))
-  );
 
-  return NextResponse.json({ tickets: withQr, orden });
+  return NextResponse.json({ tickets, orden });
 }

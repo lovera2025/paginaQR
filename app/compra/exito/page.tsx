@@ -3,30 +3,25 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
-import type { Orden, Ticket } from "@/types";
-
-interface TicketWithQr extends Ticket {
-  qrDataUrl: string;
-}
+import type { Orden } from "@/types";
 
 function ExitoContent() {
   const searchParams = useSearchParams();
   const ordenId = searchParams.get("orden");
-  const [tickets, setTickets] = useState<TicketWithQr[]>([]);
   const [orden, setOrden] = useState<Orden | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!ordenId) return;
-    fetch(`/api/ordenes/${ordenId}/tickets`)
+    fetch(`/api/ordenes/${ordenId}`)
       .then((r) => r.json())
       .then((data) => {
         if (data.error) setError(data.error);
-        else {
-          setTickets(data.tickets);
-          setOrden(data.orden);
+        else if (data.estado !== "aprobado") {
+          setError("Pago no confirmado");
+        } else {
+          setOrden(data);
         }
         setLoading(false);
       });
@@ -42,50 +37,37 @@ function ExitoContent() {
     );
   }
 
-  if (error) {
-    return <p className="text-red-400">{error}</p>;
+  if (error || !orden) {
+    return <p className="text-red-400">{error || "Orden no encontrada"}</p>;
   }
 
   return (
     <div className="mx-auto max-w-lg text-center">
       <div className="mb-6 text-5xl">✅</div>
       <h1 className="mb-2 text-3xl font-black">¡Compra confirmada!</h1>
-      {orden && (
-        <p className="mb-8 text-white/60">
-          Enviamos {tickets.length} QR a{" "}
-          <strong className="text-white">{orden.compradorEmail}</strong>
-        </p>
-      )}
 
-      <div className="space-y-6">
-        {tickets.map((t) => (
-          <div
-            key={t.id}
-            className="rounded-2xl border border-white/10 bg-white/5 p-6"
-          >
-            <p className="mb-1 font-semibold">{t.compradorNombre}</p>
-            <p className="mb-4 text-sm text-white/50">
-              Entrada {t.numeroEntrada} de {t.totalEntradas}
-            </p>
-            <div className="mx-auto inline-block rounded-xl bg-white p-4">
-              <Image
-                src={t.qrDataUrl}
-                alt="QR entrada"
-                width={200}
-                height={200}
-                unoptimized
-              />
-            </div>
-            <p className="mt-4 text-xs text-white/40">
-              Presentá este código en la entrada
-            </p>
-          </div>
-        ))}
+      <div className="mb-8 rounded-2xl border border-white/10 bg-white/5 p-6 text-left">
+        <p className="mb-3 text-lg font-semibold text-white">
+          Tu QR de ingreso fue enviado por mail
+        </p>
+        <p className="text-white/70">
+          Revisá la bandeja de{" "}
+          <strong className="text-white">{orden.compradorEmail}</strong>
+          {orden.cantidad > 1
+            ? ` — ${orden.cantidad} entradas, un QR por cada una.`
+            : "."}
+        </p>
+        <p className="mt-4 text-sm text-white/50">
+          Si no lo ves en unos minutos, revisá spam o correo no deseado.
+        </p>
+        <p className="mt-4 text-sm font-medium text-white/80">
+          Presentá el QR del mail en la entrada el día del evento.
+        </p>
       </div>
 
       <Link
         href="/"
-        className="mt-8 inline-block rounded-xl bg-white px-6 py-3 font-semibold text-black"
+        className="inline-block rounded-xl bg-white px-6 py-3 font-semibold text-black"
       >
         Volver al evento
       </Link>

@@ -9,13 +9,6 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function absoluteAssetUrl(path: string, appUrl: string): string {
-  if (!path) return "";
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  const base = appUrl.replace(/\/$/, "");
-  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
-}
-
 function formatFechaAsunto(iso: string): string {
   return new Date(iso).toLocaleDateString("es-AR", {
     day: "numeric",
@@ -32,31 +25,29 @@ export function buildConfirmationHtml(input: {
   orden: Orden;
   tickets: Ticket[];
   evento: Evento;
-  qrDataUrls: string[];
-  appUrl: string;
+  flyerCid: string | null;
+  logoCid: string | null;
+  qrCids: string[];
 }): string {
-  const { orden, tickets, evento, qrDataUrls, appUrl } = input;
+  const { orden, tickets, evento, flyerCid, logoCid, qrCids } = input;
   const color = evento.colorPrimario || "#ff006e";
-  const flyerUrl = absoluteAssetUrl(evento.flyerUrl, appUrl);
-  const logoUrl = absoluteAssetUrl(evento.logoUrl, appUrl);
   const organizador = evento.organizadorNombre || "JR Eventos";
   const lugar = escapeHtml(evento.lugar || "A confirmar");
   const mapsLink = evento.mapsUrl?.trim()
     ? `<p style="margin:8px 0 0;font-size:14px;"><a href="${escapeHtml(evento.mapsUrl)}" style="color:${color};">Ver en mapa</a></p>`
     : "";
 
-  const flyerBlock = flyerUrl
-    ? `<img src="${escapeHtml(flyerUrl)}" alt="${escapeHtml(evento.nombre)}" width="560" style="display:block;width:100%;max-width:560px;height:auto;border-radius:12px 12px 0 0;" />`
+  const flyerBlock = flyerCid
+    ? `<img src="cid:${flyerCid}" alt="${escapeHtml(evento.nombre)}" width="560" style="display:block;width:100%;max-width:560px;height:auto;border-radius:12px 12px 0 0;" />`
     : "";
 
-  const logoBlock =
-    logoUrl && logoUrl !== flyerUrl
-      ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(organizador)}" width="48" height="48" style="display:inline-block;width:48px;height:48px;border-radius:8px;vertical-align:middle;margin-right:10px;" />`
-      : "";
+  const logoBlock = logoCid
+    ? `<img src="cid:${logoCid}" alt="${escapeHtml(organizador)}" width="48" height="48" style="display:inline-block;width:48px;height:48px;border-radius:8px;vertical-align:middle;margin-right:10px;" />`
+    : "";
 
   const ticketCards = tickets
     .map((ticket, index) => {
-      const qr = qrDataUrls[index] ?? "";
+      const cid = qrCids[index];
       const label =
         ticket.totalEntradas > 1
           ? `Entrada ${ticket.numeroEntrada} de ${ticket.totalEntradas}`
@@ -64,7 +55,7 @@ export function buildConfirmationHtml(input: {
       return `
         <div style="margin:0 0 20px;padding:20px;background:#ffffff;border:2px solid ${color};border-radius:16px;text-align:center;">
           <p style="margin:0 0 16px;font-size:14px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.05em;">${label}</p>
-          <img src="${qr}" alt="QR entrada ${ticket.numeroEntrada}" width="280" height="280" style="display:block;margin:0 auto;width:280px;height:280px;" />
+          <img src="cid:${cid}" alt="QR entrada ${ticket.numeroEntrada}" width="280" height="280" style="display:block;margin:0 auto;width:280px;height:280px;" />
         </div>`;
     })
     .join("");
