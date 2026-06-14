@@ -1,7 +1,7 @@
 # PaginaQR / JR Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: 13 junio 2026 — spec email confirmación documentada; **implementar en próximo chat**
+> Última actualización: 13 junio 2026 (noche) — Resend + reinicio + estados en producción. **Próximo chat: Historial → MP**
 
 ## Meta inmediata
 
@@ -35,17 +35,20 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 | Feedback reembolso / baja en admin | ✅ Bloque 1 (vie 12) |
 | Google Maps en admin | ✅ Bloque 1 (vie 12) |
 | Formato fecha landing (`· 20:00 hs`) | ✅ vie 12 — commit `14c9a5a` |
-| Resend (emails con QR) | ✅ Implementado — deploy + vars Vercel + migración SQL |
-| Reiniciar ventas (admin) | ❌ Planificado — solo evento en borrador |
-| Historial eventos pasados | ❌ Planificado — post `finalizado` |
-| Estados evento (borrador/venta/finalizado) | ❌ Planificado |
-| Mercado Pago (Checkout Pro) | ❌ Después de Resend + reinicio probados |
-| PIN fuerte en producción | ❌ dom/lun |
+| Resend (emails con QR) | ✅ Producción — inline CID (Gmail OK) · QR solo en mail |
+| `/compra/exito` sin QR en pantalla | ✅ Mensaje “QR enviado al mail” |
+| `email_sent_at` (idempotencia mail) | ✅ Migración SQL |
+| Reiniciar ventas (admin) | ✅ Solo `borrador` · confirmación `REINICIAR` |
+| Estados evento (borrador/venta/finalizado) | ✅ Abrir venta · Cerrar evento |
+| Historial eventos pasados | ❌ **Próximo chat (14 jun)** |
+| Mercado Pago (Checkout Pro) | ❌ **Después de Historial** (más sensible) |
+| Reembolso vía API MP | ❌ Con MP |
+| PIN fuerte en producción | ❌ Con MP / cierre prod |
 | Dominio propio | ❌ Opcional (ej. entradas.jreventos.com) |
 
-**Momento exacto:** Resend en código. Compra **simulada** en Vercel. **Próximo:** reiniciar ventas + estados/historial → MP real.
+**Momento exacto:** Compra **simulada** en Vercel. Mail + scanner + reinicio probados. **Mañana:** Historial primero, MP después (cuando hijo recupere contraseña/token).
 
-**Commits recientes:** `d152e79` (Bloque 1) · `14c9a5a` (fecha `· hs`) · `c6bee6f` (docs)
+**Commits recientes:** `187fd79` (reinicio + estados) · `d3cc13b` (fix contentId mail) · `c7d2ed8` (mail inline) · `73ead2c` (Resend)
 
 ---
 
@@ -103,7 +106,9 @@ Sistema de venta de entradas para eventos (Argentina). Marca: **Junior Eventos /
 ### `tickets` — solo existen si orden aprobada. Campos: usado, cancelado
 **NO hay `pagado` en tickets.** Varias entradas en una compra = **un ticket/QR por entrada** (no uno solo para toda la orden).
 
-**Pendiente Fase C:** snapshot de branding al comprar · campo `email_sent_at` en orden (idempotencia mail).
+**Hecho Fase C (parcial):** `email_sent_at` en orden · mail Resend con adjuntos inline (`contentId` camelCase + QR base64).
+
+**Pendiente Fase C:** snapshot de branding al comprar (para mails históricos si admin edita evento).
 
 ---
 
@@ -111,16 +116,18 @@ Sistema de venta de entradas para eventos (Argentina). Marca: **Junior Eventos /
 
 Objetivo: construir en capas, probar cada pieza sin ensuciar datos reales, y no mezclar “prueba” con “evento archivado”.
 
-### Orden de implementación (actualizado)
+### Orden de implementación (actualizado 13 jun noche)
 
-| # | Bloque | Para qué |
-|---|--------|----------|
-| 1 | **Resend** | Mail real con logo + 1 QR por entrada; funciona con **pago simulado** |
-| 2 | **Reiniciar ventas** | Limpiar pruebas y contadores; QRs viejos invalidados en scanner |
-| 3 | **Estados evento** | `borrador` → `venta` → `finalizado` |
-| 4 | **Historial** | Eventos pasados con stats + lista compradores (solo lectura) |
-| 5 | **Mercado Pago** | Mismo `approveOrden` + mail; plata real |
-| 6 | **Ops prod** | PIN fuerte, reembolso MP, `APP_MODE=production` |
+| # | Bloque | Estado |
+|---|--------|--------|
+| 1 | **Resend** | ✅ Mail + QR por entrada (pago simulado) |
+| 2 | **Reiniciar ventas** | ✅ Solo borrador |
+| 3 | **Estados evento** | ✅ borrador → venta → finalizado |
+| 4 | **Historial** | ❌ **Siguiente sesión (14 jun)** |
+| 5 | **Mercado Pago** | ❌ Después de Historial (Checkout Pro + webhook) |
+| 6 | **Ops prod** | ❌ PIN fuerte, reembolso MP, `APP_MODE=production` |
+
+**Decisión acordada (13 jun):** Historial **antes** que MP — MP es más sensible; conviene tener archivado/listas listas antes de plata real.
 
 ### Ciclo de prueba (sin MP)
 
@@ -187,16 +194,23 @@ Admin → pestaña **Historial** → elegir evento → ver stats + tablas.
 
 ---
 
-## Reiniciar ventas — especificación (a implementar)
+## Reiniciar ventas — implementado ✅
 
-- API: `POST /api/admin/reset-ventas` · solo rol admin
-- UI: Admin → Resumen o Apariencia · botón rojo con confirmación
-- Usuario debe escribir **`REINICIAR`** para confirmar
-- Solo si `evento.estado === 'borrador'` (o flag explícito “modo prueba”)
-- Borrar: `ordenes WHERE evento_id = ?` (tickets CASCADE) · `activity_log` (global OK si un solo evento)
-- **No** borrar fila `eventos` ni imágenes Storage
-- Toast éxito/error · refresh stats Realtime
-- Efecto: contadores en 0 · QRs viejos → scanner “Entrada no válida”
+- API: `POST /api/admin/reset-ventas` · body `{ confirmacion: "REINICIAR" }`
+- UI: Admin → **Resumen** · botón rojo + modal
+- Solo si `evento.estado === 'borrador'`
+- Borra: `ordenes` del evento (tickets CASCADE) + `activity_log`
+- **No** borra `eventos` ni Storage
+- Efecto: contadores 0 · QRs viejos → scanner “Entrada no válida”
+- **No archiva** en historial — distinto de **Cerrar evento**
+
+## Estados evento — implementado ✅
+
+- Columna `eventos.estado` · migración `supabase/migrations/evento_estado.sql`
+- API: `POST /api/admin/evento/estado` · `{ accion: "abrir_venta" | "cerrar" }`
+- **Abrir venta:** borrador → venta (bloquea Reiniciar)
+- **Cerrar evento:** venta → finalizado + `activo = false` (datos intactos en DB)
+- Lógica: `lib/evento/estado.ts`
 
 ---
 
@@ -247,14 +261,13 @@ RESEND_FROM=JR Eventos <onboarding@resend.dev>   # prueba
 NEXT_PUBLIC_APP_URL=https://jreventos-entradas.vercel.app
 ```
 
-### Paso 6 — Qué hará el código (próxima sesión)
+### Paso 6 — Código ✅
 
-> **Implementado** en `lib/email/send.ts` + `lib/email/template.ts` — hook en `approveOrden`.
-
-- Al `approveOrden` (mock o MP): enviar mail según spec visual
-- Campo `email_sent_at` en `ordenes` — no reenviar si ya enviado
-- Snapshot branding en orden al aprobar
-- Si no hay `RESEND_API_KEY`: seguir con `[EMAIL SIMULADO]` en logs (como hoy)
+- `lib/email/send.ts` + `lib/email/template.ts` + `lib/email/attachments.ts`
+- Hook en `approveOrden` (mock + futuro MP)
+- Adjuntos inline Resend: **`contentId`** + **`contentType`** (camelCase) · QR en base64 · flyer vía `path`
+- `/compra/exito`: **no** muestra QR — solo aviso de mail enviado
+- Fallback sin `RESEND_API_KEY`: log `[EMAIL SIMULADO]`
 
 ### Paso 7 — Probar
 
@@ -269,7 +282,7 @@ Guía oficial: https://resend.com/docs/send-with-nextjs
 
 ## Email de confirmación — diseño acordado (a implementar)
 
-> **Estado:** implementado (flyer hero + QR grande por entrada).
+> **Estado:** ✅ implementado y probado en Gmail móvil (fix contentId jun 2026).
 
 ### Objetivo / sensación
 
@@ -377,19 +390,29 @@ Ej: `Tu entrada — Fiesta de Promo · 20 jun`
 
 ---
 
-### Próximo — Resend + reinicio (antes de MP)
+### Sábado 13 — Resend + reinicio + estados ✅
 
-- [ ] Cuenta Resend + `RESEND_API_KEY` en `.env.local` / Vercel
-- [ ] Código: `lib/email/send.ts` + hook en `approveOrden`
-- [ ] Migración: `email_sent_at` en `ordenes`
-- [ ] Email HTML según spec **「Email de confirmación — diseño acordado」** (flyer hero + QR grande por entrada)
-- [ ] Probar con pago simulado + Gmail propio
-- [ ] Botón **Reiniciar ventas** (solo borrador)
-- [ ] `evento.estado` + **Cerrar evento** + pestaña **Historial**
+- [x] Resend en Vercel + migración `email_sent_at`
+- [x] Mail con flyer + QR (fix Gmail contentId)
+- [x] `/compra/exito` sin QR en pantalla
+- [x] Reiniciar ventas + estados + Abrir venta + Cerrar evento
+- [x] Migración `evento_estado.sql` (correr en Supabase si falta)
 
 ---
 
-### Mercado Pago (después de mail probado)
+### Domingo 14 — Historial (PRIMERO) ❌
+
+- [ ] Pestaña **Historial** en admin
+- [ ] Listar eventos `finalizado` (`activo = false`)
+- [ ] Por evento: stats (vendidas, recaudado, reembolsado, ingresaron, sin usar)
+- [ ] Lista compradores (órdenes) + detalle entradas — solo lectura
+- [ ] Probar: Cerrar evento de prueba → ver en Historial
+
+**No requiere MP.** No toca plata.
+
+---
+
+### Mercado Pago (DESPUÉS de Historial — más sensible)
 
 - [ ] Checkout Pro + webhook `/api/webhook-mp`
 - [ ] Idempotencia pago · sacar simulación con token en prod
@@ -484,12 +507,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 
 ## Fase C — Checklist (meta lun 15)
 
-- [ ] Resend — mail según spec diseño (flyer + QR llamativo) + `email_sent_at`
-- [ ] Reiniciar ventas (solo borrador) + estados evento + historial
+- [x] Resend — mail flyer + QR + `email_sent_at`
+- [x] Reiniciar ventas (solo borrador) + estados evento
+- [ ] **Historial** — pestaña eventos pasados (14 jun)
 - [ ] Mercado Pago Checkout Pro + webhook `/api/webhook-mp`
 - [ ] Reembolso vía API MP desde admin
 - [ ] Snapshot branding al comprar
 - [ ] MP token producción + compra real de prueba
+- [ ] PIN fuerte + `APP_MODE=production`
 
 ---
 
@@ -501,7 +526,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 - [x] Dominio `jreventos-entradas.vercel.app`
 - [x] Build OK
 - [x] Título pestaña → "JR Eventos"
-- [ ] Variables MP + Resend + PIN fuerte
+- [x] Variables Resend en producción
+- [ ] Variables MP + PIN fuerte
 - [ ] Dominio propio (opcional, post-evento)
 
 ---
@@ -525,28 +551,28 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 
 ---
 
-## Qué falta — resumen para próxima sesión
+## Qué falta — resumen para próxima sesión (14 jun)
 
 | Prioridad | Bloque | Tareas |
 |-----------|--------|--------|
-| 1 | **Resend** | API key, mail + QR en `approveOrden`, idempotencia |
-| 2 | **Reiniciar + estados** | borrador/venta/finalizado, reset seguro |
-| 3 | **Historial** | stats + compradores por evento pasado |
-| 4 | **MP** | Checkout Pro, webhook, reembolso MP |
-| 5 | **Lun 15** | PIN prod, compra real, demo jefe |
+| 1 | **Historial** | Pestaña admin · eventos finalizados · stats + compradores + entradas (solo lectura) |
+| 2 | **MP** | Token del hijo (recuperar contraseña) · Checkout Pro · webhook · sacar simulación en prod |
+| 3 | **Ops prod** | PIN fuerte · reembolso MP · `APP_MODE=production` · demo jefe (meta lun 15) |
 
-**Gestión paralela:** `RESEND_API_KEY` (resend.com) · MP test del hijo · PINs admin/scanner
+**Gestión paralela:** MP Access Token (hijo) · PINs admin/scanner · migración `evento_estado.sql` si no se corrió
+
+**Ciclo prueba actual (borrador):** Reiniciar → comprar → mail → scanner → Reiniciar otra vez
 
 ---
 ## Cómo probar el flujo (simulación — hasta conectar MP)
 
 1. `/comprar` → formulario → simular pago exitoso
-2. `/compra/exito` → ver QR(s) — una tarjeta por entrada
-3. `/admin` → contadores suben
-4. `/scanner` → escanear → verde → re-escanear → amarillo "ya usada"
+2. `/compra/exito` → mensaje “QR enviado al mail” (QR **solo** en Gmail)
+3. `/admin` → contadores suben · **Resumen** → estado Borrador · **Reiniciar ventas** si querés limpiar
+4. `/scanner` → escanear QR del mail → verde → re-escanear → amarillo "ya usada"
 5. Admin → reembolsar → scanner → rojo "cancelada"
 
-**Nota:** Con Supabase y sin `MP_ACCESS_TOKEN`, `canSimulatePayment()` → simulación activa.
+**Nota:** Sin `MP_ACCESS_TOKEN`, `canSimulatePayment()` → simulación activa. **Abrir venta pública** bloquea Reiniciar.
 
 ---
 
@@ -562,9 +588,9 @@ npm run update:evento    # actualizar evento demo en Supabase
 
 ## Cómo continuar en un nuevo chat
 
-1. Leer este archivo — secciones **Plan anti-bugs**, **Historial**, **Resend**, **Email de confirmación — diseño acordado**
+1. Leer este archivo — **Estado actual**, **Historial** (spec), **Reiniciar ventas**, **Estados evento**
 2. Meta: **operativo lun 15 tarde**, evento **vie 20**
-3. Usuario dirá **“aplicar Resend / mail”** → entonces implementar spec email + `lib/email/send.ts`
-4. `RESEND_API_KEY` en `.env.local` / Vercel (plan free OK)
-5. Probar: pago simulado → mail Gmail → scanner
-6. Después: reiniciar ventas + historial → MP
+3. Usuario dirá **“implementá historial”** → pestaña admin + APIs lectura eventos `finalizado`
+4. **Después** (no antes): **“implementá Mercado Pago”** — requiere Access Token del hijo
+5. Migraciones Supabase pendientes si no se corrieron: `email_sent_at.sql`, `evento_estado.sql`
+6. Orden fijo acordado: **Historial → MP → ops prod**
