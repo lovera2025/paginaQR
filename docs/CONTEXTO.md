@@ -40,15 +40,18 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 | `email_sent_at` (idempotencia mail) | ✅ Migración SQL |
 | Reiniciar ventas (admin) | ✅ Solo `borrador` · confirmación `REINICIAR` |
 | Estados evento (borrador/venta/finalizado) | ✅ Abrir venta · Cerrar evento |
-| Historial eventos pasados | ❌ **Próximo chat (14 jun)** |
-| Mercado Pago (Checkout Pro) | ❌ **Después de Historial** (más sensible) |
+| Historial eventos pasados | ✅ **Hecho — 14 jun** |
+| Crear nuevo evento (desde admin) | ✅ **Hecho — 14 jun** |
+| Botón Staff en landing | ✅ **Hecho — 14 jun** |
+| Seguridad: aviso PIN débil + guía Vercel | ✅ **Hecho — 14 jun** |
+| Mercado Pago (Checkout Pro) | ❌ **Próximo** |
 | Reembolso vía API MP | ❌ Con MP |
 | PIN fuerte en producción | ❌ Con MP / cierre prod |
 | Dominio propio | ❌ Opcional (ej. entradas.jreventos.com) |
 
-**Momento exacto:** Compra **simulada** en Vercel. Mail + scanner + reinicio probados. **Mañana:** Historial primero, MP después (cuando hijo recupere contraseña/token).
+**Momento exacto:** Historial + crear evento + Staff button + Seguridad listos (14 jun). **Próximo:** Mercado Pago (Checkout Pro + webhook).
 
-**Commits recientes:** `187fd79` (reinicio + estados) · `d3cc13b` (fix contentId mail) · `c7d2ed8` (mail inline) · `73ead2c` (Resend)
+**Commits recientes:** `187fd79` (reinicio + estados) · `d3cc13b` (fix contentId mail) · `c7d2ed8` (mail inline) · `73ead2c` (Resend) · `feat: historial + crear evento + Staff button + Seguridad` (14 jun)
 
 ---
 
@@ -510,6 +513,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 - [x] Resend — mail flyer + QR + `email_sent_at`
 - [x] Reiniciar ventas (solo borrador) + estados evento
 - [ ] **Historial** — pestaña eventos pasados (14 jun)
++ [x] Historial — pestaña admin · eventos finalizados · stats + compradores + entradas (solo lectura)
++ [x] Crear nuevo evento desde admin (cuando no hay activo, en borrador)
++ [x] Botón Staff en nav del hero → /admin
++ [x] Sección Seguridad: aviso PIN débil, guía Vercel
 - [ ] Mercado Pago Checkout Pro + webhook `/api/webhook-mp`
 - [ ] Reembolso vía API MP desde admin
 - [ ] Snapshot branding al comprar

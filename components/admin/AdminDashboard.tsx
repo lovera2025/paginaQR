@@ -3,17 +3,41 @@
 import { useCallback, useEffect, useState } from "react";
 import { ImageUploadField } from "@/components/admin/ImageUploadField";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
-import type { ActivityLog, AdminStats, Evento, Orden, Ticket } from "@/types";
+import type {
+  ActivityLog,
+  AdminStats,
+  Evento,
+  HistorialItem,
+  Orden,
+  Ticket,
+} from "@/types";
 import {
   canAbrirVenta,
   canCerrarEvento,
   canResetVentas,
   EVENTO_ESTADO_LABELS,
 } from "@/lib/evento/estado";
-import { formatFechaCorta, formatPrecio, isoToDatetimeLocalAr, ticketEstadoLabel } from "@/lib/utils";
+import {
+  formatFecha,
+  formatFechaCorta,
+  formatPrecio,
+  isoToDatetimeLocalAr,
+  ticketEstadoLabel,
+} from "@/lib/utils";
 
-type Tab = "resumen" | "compras" | "entradas" | "apariencia" | "actividad";
+type Tab = "resumen" | "compras" | "entradas" | "apariencia" | "actividad" | "historial" | "seguridad";
 type Toast = { type: "success" | "error"; text: string };
+
+interface SecurityInfo {
+  adminPinDebil: boolean;
+  scannerPinDebil: boolean;
+  ambosIguales: boolean;
+}
+
+interface HistorialDetalle {
+  ordenes: Orden[];
+  tickets: Ticket[];
+}
 
 function estadoBadgeClass(estado: Evento["estado"]): string {
   if (estado === "borrador") return "bg-yellow-500/20 text-yellow-300";
@@ -53,6 +77,14 @@ function Field({
   );
 }
 
+const EMPTY_NUEVO = {
+  nombre: "",
+  fecha: "",
+  precio: "",
+  capacidad: "",
+  copiarBranding: true,
+};
+
 export function AdminDashboard() {
   const [tab, setTab] = useState<Tab>("resumen");
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -65,6 +97,22 @@ export function AdminDashboard() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetConfirm, setResetConfirm] = useState("");
+
+  // Nuevo evento
+  const [nuevoOpen, setNuevoOpen] = useState(false);
+  const [nuevoForm, setNuevoForm] = useState(EMPTY_NUEVO);
+  const [nuevoLoading, setNuevoLoading] = useState(false);
+  const [nuevoError, setNuevoError] = useState("");
+
+  // Historial
+  const [historialItems, setHistorialItems] = useState<HistorialItem[] | null>(null);
+  const [historialLoading, setHistorialLoading] = useState(false);
+  const [selectedHistorialId, setSelectedHistorialId] = useState<string | null>(null);
+  const [historialDetalle, setHistorialDetalle] = useState<HistorialDetalle | null>(null);
+  const [historialDetalleLoading, setHistorialDetalleLoading] = useState(false);
+
+  // Seguridad
+  const [security, setSecurity] = useState<SecurityInfo | null>(null);
 
   function showToast(type: Toast["type"], text: string) {
     setToast({ type, text });
@@ -83,7 +131,7 @@ export function AdminDashboard() {
     setOrdenes(o.ordenes ?? []);
     setTickets(t.tickets ?? []);
     setActivity(a.activity ?? []);
-    setEvento(e?.id ? { ...e, estado: e.estado ?? "borrador" } : e);
+    setEvento(e?.id ? { ...e, estado: e.estado ?? "borrador" } : null);
   }, []);
 
   useEffect(() => {
@@ -91,6 +139,42 @@ export function AdminDashboard() {
   }, [refresh]);
 
   useAdminRealtime(refresh);
+
+  // Cargar historial cuando se abre la pestaña
+  useEffect(() => {
+    if (tab !== "historial" || historialItems !== null) return;
+    setHistorialLoading(true);
+    fetch("/api/admin/historial")
+      .then((r) => r.json())
+      .then((d) => setHistorialItems(d.items ?? []))
+      .finally(() => setHistorialLoading(false));
+  }, [tab, historialItems]);
+
+  // Cargar seguridad cuando se abre la pestaña
+  useEffect(() => {
+    if (tab !== "seguridad" || security !== null) return;
+    fetch("/api/admin/security-check")
+      .then((r) => r.json())
+      .then((d) => setSecurity(d));
+  }, [tab, security]);
+
+  async function loadHistorialDetalle(eventoId: string) {
+    if (selectedHistorialId === eventoId) {
+      setSelectedHistorialId(null);
+      setHistorialDetalle(null);
+      return;
+    }
+    setSelectedHistorialId(eventoId);
+    setHistorialDetalle(null);
+    setHistorialDetalleLoading(true);
+    try {
+      const r = await fetch(`/api/admin/historial/${eventoId}`);
+      const d = await r.json();
+      setHistorialDetalle({ ordenes: d.ordenes ?? [], tickets: d.tickets ?? [] });
+    } finally {
+      setHistorialDetalleLoading(false);
+    }
+  }
 
   async function handleCancel(ticketId: string) {
     if (!confirm("¿Dar de baja esta entrada?")) return;
@@ -166,7 +250,7 @@ export function AdminDashboard() {
 
   async function handleResetVentas() {
     if (resetConfirm !== "REINICIAR") {
-      showToast("error", 'Escribí REINICIAR para confirmar');
+      showToast("error", "Escribí REINICIAR para confirmar");
       return;
     }
     setActionLoading("reset");
@@ -194,7 +278,7 @@ export function AdminDashboard() {
     const msg =
       accion === "abrir_venta"
         ? "¿Abrir venta pública? No vas a poder reiniciar ventas después."
-        : "¿Cerrar y archivar este evento? Los datos se guardan (historial próximamente).";
+        : "¿Cerrar y archivar este evento? Los datos se guardarán en Historial.";
     if (!confirm(msg)) return;
 
     setActionLoading(accion);
@@ -211,11 +295,51 @@ export function AdminDashboard() {
       }
       showToast(
         "success",
-        accion === "abrir_venta" ? "Venta abierta" : "Evento cerrado y archivado"
+        accion === "abrir_venta"
+          ? "Venta abierta"
+          : "Evento cerrado y archivado en Historial"
       );
+      // Resetear historial cargado para que se recargue
+      setHistorialItems(null);
       refresh();
     } finally {
       setActionLoading(null);
+    }
+  }
+
+  async function handleCrearNuevo(e: React.FormEvent) {
+    e.preventDefault();
+    setNuevoError("");
+    if (!nuevoForm.nombre.trim()) { setNuevoError("El nombre es obligatorio"); return; }
+    if (!nuevoForm.fecha) { setNuevoError("La fecha es obligatoria"); return; }
+    if (!(Number(nuevoForm.precio) > 0)) { setNuevoError("El precio debe ser mayor a 0"); return; }
+    if (!(Number(nuevoForm.capacidad) >= 1)) { setNuevoError("La capacidad debe ser al menos 1"); return; }
+
+    setNuevoLoading(true);
+    try {
+      const res = await fetch("/api/admin/evento/nuevo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombre: nuevoForm.nombre.trim(),
+          fecha: nuevoForm.fecha ? `${nuevoForm.fecha}:00-03:00` : "",
+          precio: Number(nuevoForm.precio),
+          capacidad: Number(nuevoForm.capacidad),
+          copiarBranding: nuevoForm.copiarBranding,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNuevoError(data.error ?? "No se pudo crear el evento");
+        return;
+      }
+      setNuevoOpen(false);
+      setNuevoForm(EMPTY_NUEVO);
+      showToast("success", `Evento "${data.evento.nombre}" creado en borrador`);
+      setHistorialItems(null);
+      refresh();
+    } finally {
+      setNuevoLoading(false);
     }
   }
 
@@ -230,6 +354,8 @@ export function AdminDashboard() {
     { id: "entradas", label: "Entradas" },
     { id: "apariencia", label: "Apariencia" },
     { id: "actividad", label: "Actividad" },
+    { id: "historial", label: "Historial" },
+    { id: "seguridad", label: "Seguridad" },
   ];
 
   return (
@@ -294,6 +420,7 @@ export function AdminDashboard() {
           </p>
         )}
 
+        {/* ── RESUMEN ────────────────────────────────────── */}
         {tab === "resumen" && (
           <>
             {evento ? (
@@ -326,9 +453,7 @@ export function AdminDashboard() {
                         disabled={actionLoading === "abrir_venta"}
                         className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500 disabled:opacity-50"
                       >
-                        {actionLoading === "abrir_venta"
-                          ? "..."
-                          : "Abrir venta pública"}
+                        {actionLoading === "abrir_venta" ? "..." : "Abrir venta pública"}
                       </button>
                     )}
                     {canCerrarEvento(evento.estado) && (
@@ -351,24 +476,37 @@ export function AdminDashboard() {
                 )}
               </div>
             ) : (
-              <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5 text-white/60">
-                No hay evento activo. Si cerraste uno, los datos quedaron guardados
-                (pestaña Historial — próximamente).
+              <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-6">
+                <p className="mb-4 text-white/60">
+                  No hay evento activo. Los datos del último evento están en{" "}
+                  <button
+                    className="underline hover:text-white"
+                    onClick={() => setTab("historial")}
+                  >
+                    Historial
+                  </button>
+                  .
+                </p>
+                <button
+                  onClick={() => setNuevoOpen(true)}
+                  className="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black hover:bg-white/90"
+                >
+                  + Crear nuevo evento
+                </button>
               </div>
             )}
 
+            {/* Modal reiniciar */}
             {resetOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
                 <div className="w-full max-w-md rounded-2xl border border-red-500/30 bg-[#12121a] p-6">
                   <h2 className="text-lg font-bold text-red-400">Reiniciar ventas</h2>
                   <p className="mt-2 text-sm text-white/60">
                     Borra todas las compras y entradas de prueba de este evento.
-                    No archiva en historial. Los QRs viejos dejan de funcionar en el
-                    scanner.
+                    No archiva en historial. Los QRs viejos dejan de funcionar.
                   </p>
                   <p className="mt-4 text-sm text-white/80">
-                    Escribí <strong className="text-white">REINICIAR</strong> para
-                    confirmar:
+                    Escribí <strong className="text-white">REINICIAR</strong> para confirmar:
                   </p>
                   <input
                     value={resetConfirm}
@@ -380,10 +518,7 @@ export function AdminDashboard() {
                   <div className="mt-6 flex gap-3">
                     <button
                       type="button"
-                      onClick={() => {
-                        setResetOpen(false);
-                        setResetConfirm("");
-                      }}
+                      onClick={() => { setResetOpen(false); setResetConfirm(""); }}
                       className="flex-1 rounded-xl border border-white/10 py-3 text-sm"
                     >
                       Cancelar
@@ -401,6 +536,96 @@ export function AdminDashboard() {
               </div>
             )}
 
+            {/* Modal nuevo evento */}
+            {nuevoOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+                <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#12121a] p-6">
+                  <h2 className="mb-4 text-lg font-bold">Nuevo evento</h2>
+                  <form onSubmit={handleCrearNuevo} className="space-y-4">
+                    <div>
+                      <label className="mb-1 block text-sm text-white/60">Nombre del evento</label>
+                      <input
+                        value={nuevoForm.nombre}
+                        onChange={(e) => setNuevoForm({ ...nuevoForm, nombre: e.target.value })}
+                        placeholder="Ej: Fiesta de Promo 2027"
+                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm text-white/60">Fecha y hora</label>
+                      <input
+                        type="datetime-local"
+                        value={nuevoForm.fecha}
+                        onChange={(e) => setNuevoForm({ ...nuevoForm, fecha: e.target.value })}
+                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none [color-scheme:dark]"
+                      />
+                      <p className="mt-1 text-xs text-white/40">Hora Argentina (ej. 20:00)</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1 block text-sm text-white/60">Precio ($)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={nuevoForm.precio}
+                          onChange={(e) => setNuevoForm({ ...nuevoForm, precio: e.target.value })}
+                          placeholder="15000"
+                          className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm text-white/60">Capacidad</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={nuevoForm.capacidad}
+                          onChange={(e) => setNuevoForm({ ...nuevoForm, capacidad: e.target.value })}
+                          placeholder="300"
+                          className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={nuevoForm.copiarBranding}
+                        onChange={(e) => setNuevoForm({ ...nuevoForm, copiarBranding: e.target.checked })}
+                        className="h-4 w-4 accent-white"
+                      />
+                      <span className="text-sm text-white/80">
+                        Copiar logo, flyer y contacto del evento anterior
+                      </span>
+                    </label>
+                    {nuevoError && (
+                      <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                        {nuevoError}
+                      </p>
+                    )}
+                    <p className="text-xs text-white/40">
+                      Se crea en borrador — podés editar el resto en Apariencia antes de abrir venta.
+                    </p>
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => { setNuevoOpen(false); setNuevoForm(EMPTY_NUEVO); setNuevoError(""); }}
+                        className="flex-1 rounded-xl border border-white/10 py-3 text-sm"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={nuevoLoading}
+                        className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black disabled:opacity-50"
+                      >
+                        {nuevoLoading ? "Creando..." : "Crear evento"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
             {stats && (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {[
@@ -413,10 +638,7 @@ export function AdminDashboard() {
                   { label: "Capacidad", value: `${stats.vendidasActivas} / ${stats.capacidad}`, color: "#fff" },
                   { label: "Disponibles", value: stats.disponibles, color: "#4cc9f0" },
                 ].map((card) => (
-                  <div
-                    key={card.label}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-5"
-                  >
+                  <div key={card.label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
                     <p className="text-sm text-white/50">{card.label}</p>
                     <p className="text-2xl font-black" style={{ color: card.color }}>
                       {card.value}
@@ -428,6 +650,7 @@ export function AdminDashboard() {
           </>
         )}
 
+        {/* ── COMPRAS ────────────────────────────────────── */}
         {tab === "compras" && (
           <div className="overflow-x-auto rounded-2xl border border-white/10">
             <table className="w-full text-left text-sm">
@@ -490,6 +713,7 @@ export function AdminDashboard() {
           </div>
         )}
 
+        {/* ── ENTRADAS ────────────────────────────────────── */}
         {tab === "entradas" && (
           <div className="overflow-x-auto rounded-2xl border border-white/10">
             <table className="w-full text-left text-sm">
@@ -506,13 +730,9 @@ export function AdminDashboard() {
               <tbody>
                 {tickets.map((t) => (
                   <tr key={t.id} className="border-b border-white/5">
-                    <td className="p-3 font-mono text-xs text-white/40">
-                      {t.id.slice(0, 8)}…
-                    </td>
+                    <td className="p-3 font-mono text-xs text-white/40">{t.id.slice(0, 8)}…</td>
                     <td className="p-3">{t.compradorNombre}</td>
-                    <td className="p-3">
-                      {t.numeroEntrada}/{t.totalEntradas}
-                    </td>
+                    <td className="p-3">{t.numeroEntrada}/{t.totalEntradas}</td>
                     <td className="p-3">{ticketEstadoLabel(t)}</td>
                     <td className="p-3 text-white/60">
                       {t.usadoAt ? formatFechaCorta(t.usadoAt) : "—"}
@@ -542,13 +762,16 @@ export function AdminDashboard() {
           </div>
         )}
 
+        {/* ── APARIENCIA ────────────────────────────────────── */}
         {tab === "apariencia" && evento && (
           <form onSubmit={handleSaveEvento} className="max-w-2xl space-y-4">
-            <Field label="Nombre del evento" value={evento.nombre} onChange={(v) => setEvento({ ...evento, nombre: v })} />
+            <Field
+              label="Nombre del evento"
+              value={evento.nombre}
+              onChange={(v) => setEvento({ ...evento, nombre: v })}
+            />
             <div>
-              <label className="mb-1 block text-sm text-white/60">
-                Fecha y hora del evento
-              </label>
+              <label className="mb-1 block text-sm text-white/60">Fecha y hora del evento</label>
               <input
                 type="datetime-local"
                 value={isoToDatetimeLocalAr(evento.fecha)}
@@ -584,11 +807,7 @@ export function AdminDashboard() {
             <Field label="Color secundario (#hex)" value={evento.colorSecundario} onChange={(v) => setEvento({ ...evento, colorSecundario: v })} />
             <Field label="Descripción" value={evento.descripcion} onChange={(v) => setEvento({ ...evento, descripcion: v })} multiline />
             <Field label="Lugar" value={evento.lugar} onChange={(v) => setEvento({ ...evento, lugar: v })} />
-            <Field
-              label="Google Maps (URL)"
-              value={evento.mapsUrl}
-              onChange={(v) => setEvento({ ...evento, mapsUrl: v })}
-            />
+            <Field label="Google Maps (URL)" value={evento.mapsUrl} onChange={(v) => setEvento({ ...evento, mapsUrl: v })} />
             <Field label="WhatsApp (54911...)" value={evento.contactoWhatsapp} onChange={(v) => setEvento({ ...evento, contactoWhatsapp: v })} />
             <Field label="Email contacto" value={evento.contactoEmail} onChange={(v) => setEvento({ ...evento, contactoEmail: v })} />
             <Field label="Instagram (@usuario)" value={evento.contactoInstagram} onChange={(v) => setEvento({ ...evento, contactoInstagram: v })} />
@@ -600,9 +819,7 @@ export function AdminDashboard() {
                 <input
                   type="number"
                   value={evento.precio}
-                  onChange={(e) =>
-                    setEvento({ ...evento, precio: Number(e.target.value) })
-                  }
+                  onChange={(e) => setEvento({ ...evento, precio: Number(e.target.value) })}
                   className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
                 />
               </div>
@@ -611,9 +828,7 @@ export function AdminDashboard() {
                 <input
                   type="number"
                   value={evento.capacidad}
-                  onChange={(e) =>
-                    setEvento({ ...evento, capacidad: Number(e.target.value) })
-                  }
+                  onChange={(e) => setEvento({ ...evento, capacidad: Number(e.target.value) })}
                   className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
                 />
               </div>
@@ -627,7 +842,16 @@ export function AdminDashboard() {
             </button>
           </form>
         )}
+        {tab === "apariencia" && !evento && (
+          <div className="text-white/40">
+            No hay evento activo para editar.{" "}
+            <button className="underline" onClick={() => setTab("resumen")}>
+              Ir a Resumen
+            </button>
+          </div>
+        )}
 
+        {/* ── ACTIVIDAD ────────────────────────────────────── */}
         {tab === "actividad" && (
           <div className="space-y-2">
             {activity.map((a) => (
@@ -635,15 +859,285 @@ export function AdminDashboard() {
                 key={a.id}
                 className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-4"
               >
-                <span className="text-xs text-white/40">
-                  {formatFechaCorta(a.createdAt)}
-                </span>
+                <span className="text-xs text-white/40">{formatFechaCorta(a.createdAt)}</span>
                 <span className="text-sm">{a.mensaje}</span>
               </div>
             ))}
             {activity.length === 0 && (
               <p className="text-center text-white/40">Sin actividad aún</p>
             )}
+          </div>
+        )}
+
+        {/* ── HISTORIAL ────────────────────────────────────── */}
+        {tab === "historial" && (
+          <div className="space-y-4">
+            {historialLoading && (
+              <p className="text-center text-white/40">Cargando historial…</p>
+            )}
+
+            {!historialLoading && historialItems?.length === 0 && (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-8 text-center text-white/40">
+                <p className="text-lg">Sin eventos archivados aún</p>
+                <p className="mt-1 text-sm">Cuando cierres un evento, aparecerá aquí.</p>
+              </div>
+            )}
+
+            {historialItems?.map((item) => {
+              const expanded = selectedHistorialId === item.evento.id;
+              return (
+                <div
+                  key={item.evento.id}
+                  className="rounded-2xl border border-white/10 bg-white/5"
+                >
+                  {/* Cabecera del evento */}
+                  <div className="flex flex-wrap items-start justify-between gap-4 p-5">
+                    <div>
+                      <p className="font-bold">{item.evento.nombre}</p>
+                      <p className="mt-1 text-sm text-white/50">{formatFecha(item.evento.fecha)}</p>
+                      <span className="mt-2 inline-block rounded-full bg-white/10 px-3 py-1 text-xs text-white/50">
+                        Finalizado
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-center text-sm">
+                      <div>
+                        <p className="text-2xl font-black text-[#ff006e]">{item.stats.vendidasActivas}</p>
+                        <p className="text-xs text-white/50">vendidas</p>
+                      </div>
+                      <div>
+                        <p className="text-2xl font-black text-[#8338ec]">{formatPrecio(item.stats.recaudado)}</p>
+                        <p className="text-xs text-white/50">recaudado</p>
+                      </div>
+                      <div>
+                        <p className="text-2xl font-black text-[#06d6a0]">{item.stats.ingresaron}</p>
+                        <p className="text-xs text-white/50">ingresaron</p>
+                      </div>
+                      <div>
+                        <p className="text-2xl font-black">{item.stats.sinUsar}</p>
+                        <p className="text-xs text-white/50">sin usar</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => loadHistorialDetalle(item.evento.id)}
+                      className="rounded-xl border border-white/10 px-4 py-2 text-sm hover:bg-white/5"
+                    >
+                      {expanded ? "Ocultar detalle" : "Ver detalle"}
+                    </button>
+                  </div>
+
+                  {/* Detalle expandible */}
+                  {expanded && (
+                    <div className="border-t border-white/10 p-5">
+                      {historialDetalleLoading && (
+                        <p className="text-center text-white/40">Cargando…</p>
+                      )}
+                      {historialDetalle && (
+                        <div className="space-y-6">
+                          {/* Stats completos */}
+                          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                            {[
+                              { label: "Capacidad", value: item.stats.capacidad },
+                              { label: "Vendidas", value: item.stats.vendidasActivas },
+                              { label: "Ingresaron", value: item.stats.ingresaron },
+                              { label: "Sin usar", value: item.stats.sinUsar },
+                              { label: "Canceladas", value: item.stats.canceladas },
+                              { label: "Reembolsado", value: formatPrecio(item.stats.reembolsado) },
+                            ].map((c) => (
+                              <div key={c.label} className="rounded-xl border border-white/10 bg-black/30 p-3 text-center">
+                                <p className="text-xs text-white/50">{c.label}</p>
+                                <p className="text-lg font-bold">{c.value}</p>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Tabla compradores */}
+                          <div>
+                            <p className="mb-2 text-sm font-semibold text-white/70">Compradores</p>
+                            <div className="overflow-x-auto rounded-xl border border-white/10">
+                              <table className="w-full text-left text-sm">
+                                <thead className="border-b border-white/10 bg-white/5">
+                                  <tr>
+                                    <th className="p-3">Fecha</th>
+                                    <th className="p-3">Nombre</th>
+                                    <th className="p-3">Email</th>
+                                    <th className="p-3">Cant.</th>
+                                    <th className="p-3">Monto</th>
+                                    <th className="p-3">Estado</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {historialDetalle.ordenes.map((o) => (
+                                    <tr key={o.id} className="border-b border-white/5">
+                                      <td className="p-3 text-white/60">{formatFechaCorta(o.createdAt)}</td>
+                                      <td className="p-3">{o.compradorNombre}</td>
+                                      <td className="p-3 text-white/60">{o.compradorEmail}</td>
+                                      <td className="p-3">{o.cantidad}</td>
+                                      <td className="p-3">{formatPrecio(o.montoTotal)}</td>
+                                      <td className="p-3">
+                                        <span
+                                          className={`rounded-full px-2 py-1 text-xs ${
+                                            o.estado === "aprobado"
+                                              ? "bg-green-500/20 text-green-400"
+                                              : o.estado === "reembolsado"
+                                                ? "bg-yellow-500/20 text-yellow-400"
+                                                : "bg-red-500/20 text-red-400"
+                                          }`}
+                                        >
+                                          {o.estado}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  {historialDetalle.ordenes.length === 0 && (
+                                    <tr>
+                                      <td colSpan={6} className="p-6 text-center text-white/40">Sin compras</td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                          {/* Tabla entradas */}
+                          <div>
+                            <p className="mb-2 text-sm font-semibold text-white/70">Entradas</p>
+                            <div className="overflow-x-auto rounded-xl border border-white/10">
+                              <table className="w-full text-left text-sm">
+                                <thead className="border-b border-white/10 bg-white/5">
+                                  <tr>
+                                    <th className="p-3">Comprador</th>
+                                    <th className="p-3">Entrada</th>
+                                    <th className="p-3">Estado</th>
+                                    <th className="p-3">Ingreso</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {historialDetalle.tickets.map((t) => (
+                                    <tr key={t.id} className="border-b border-white/5">
+                                      <td className="p-3">{t.compradorNombre}</td>
+                                      <td className="p-3">{t.numeroEntrada}/{t.totalEntradas}</td>
+                                      <td className="p-3">{ticketEstadoLabel(t)}</td>
+                                      <td className="p-3 text-white/60">
+                                        {t.usadoAt ? formatFechaCorta(t.usadoAt) : "—"}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  {historialDetalle.tickets.length === 0 && (
+                                    <tr>
+                                      <td colSpan={4} className="p-6 text-center text-white/40">Sin entradas</td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── SEGURIDAD ────────────────────────────────────── */}
+        {tab === "seguridad" && (
+          <div className="max-w-xl space-y-6">
+            {/* Estado PINs */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+              <h2 className="mb-4 text-base font-bold">Estado de PINs</h2>
+              {security === null ? (
+                <p className="text-sm text-white/40">Verificando…</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
+                    <span className="text-sm">PIN Admin</span>
+                    {security.adminPinDebil ? (
+                      <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs font-semibold text-red-400">
+                        Débil — cambiá el PIN antes del evento
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
+                        OK
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
+                    <span className="text-sm">PIN Scanner</span>
+                    {security.scannerPinDebil ? (
+                      <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs font-semibold text-red-400">
+                        Débil — cambiá el PIN antes del evento
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
+                        OK
+                      </span>
+                    )}
+                  </div>
+                  {security.ambosIguales && !security.adminPinDebil && (
+                    <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
+                      Admin y Scanner tienen el mismo PIN. Se recomienda separarlos: uno para vos, otro para el personal de puerta.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Cómo cambiar PINs */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+              <h2 className="mb-3 text-base font-bold">Cómo cambiar los PINs</h2>
+              <p className="mb-4 text-sm text-white/60">
+                Los PINs se configuran como variables de entorno en Vercel (nunca en el código).
+              </p>
+              <ol className="space-y-2 text-sm text-white/70">
+                <li>
+                  <strong className="text-white">1.</strong>{" "}
+                  Entrá a{" "}
+                  <a
+                    href="https://vercel.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-white"
+                  >
+                    vercel.com
+                  </a>{" "}
+                  → tu proyecto → <strong className="text-white">Settings → Environment Variables</strong>
+                </li>
+                <li>
+                  <strong className="text-white">2.</strong>{" "}
+                  Editá <code className="rounded bg-white/10 px-1">ADMIN_PIN</code> y{" "}
+                  <code className="rounded bg-white/10 px-1">SCANNER_PIN</code>
+                </li>
+                <li>
+                  <strong className="text-white">3.</strong> Usá al menos 6 dígitos, distintos entre sí
+                </li>
+                <li>
+                  <strong className="text-white">4.</strong> Hacé un nuevo deploy (o redeploy) para que tome efecto
+                </li>
+                <li>
+                  <strong className="text-white">5.</strong> Cerrá sesión aquí y verificá que el nuevo PIN funcione
+                </li>
+              </ol>
+              <div className="mt-4 rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-white/50">
+                <p>ADMIN_PIN=••••••••  ← solo vos</p>
+                <p>SCANNER_PIN=••••••  ← podés compartir con staff de puerta</p>
+              </div>
+            </div>
+
+            {/* Cerrar sesión */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+              <h2 className="mb-2 text-base font-bold">Sesión</h2>
+              <p className="mb-4 text-sm text-white/60">
+                La sesión dura 12 horas. Podés cerrarla manualmente.
+              </p>
+              <button
+                onClick={logout}
+                className="rounded-xl border border-white/20 px-5 py-2 text-sm font-semibold hover:bg-white/5"
+              >
+                Cerrar sesión
+              </button>
+            </div>
           </div>
         )}
       </main>

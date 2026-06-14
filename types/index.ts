@@ -81,3 +81,16 @@ export interface VerifyResult {
   ticket?: Ticket;
   message: string;
 }
+
+export interface NuevoEventoInput {
+  nombre: string;
+  fecha: string;
+  precio: number;
+  capacidad: number;
+  copiarBranding: boolean;
+}
+
+export interface HistorialItem {
+  evento: Evento;
+  stats: AdminStats;
+}

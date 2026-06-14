@@ -12,6 +12,8 @@ import type {
   ActivityLog,
   AdminStats,
   Evento,
+  HistorialItem,
+  NuevoEventoInput,
   Orden,
   Ticket,
   VerifyResult,
@@ -489,6 +491,142 @@ export async function cerrarEventoActivo(): Promise<
     .update({ estado: "finalizado", activo: false })
     .eq("id", evento.id)
     .eq("estado", "venta")
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+  return { evento: mapEvento(data) };
+}
+
+export async function getEventosFinalizados(): Promise<Evento[]> {
+  const { data } = await db()
+    .from("eventos")
+    .select("*")
+    .eq("activo", false)
+    .order("created_at", { ascending: false });
+  return (data ?? []).map(mapEvento);
+}
+
+export async function getOrdenesByEvento(eventoId: string): Promise<Orden[]> {
+  const { data } = await db()
+    .from("ordenes")
+    .select("*")
+    .eq("evento_id", eventoId)
+    .order("created_at", { ascending: false });
+  return (data ?? []).map(mapOrden);
+}
+
+export async function getTicketsByEvento(eventoId: string): Promise<Ticket[]> {
+  const { data } = await db()
+    .from("tickets")
+    .select("*")
+    .eq("evento_id", eventoId)
+    .order("created_at", { ascending: false });
+  return (data ?? []).map(mapTicket);
+}
+
+async function computeStatsParaEvento(eventoId: string, capacidad: number): Promise<AdminStats> {
+  const [ticketsRes, ordenesRes] = await Promise.all([
+    db().from("tickets").select("*").eq("evento_id", eventoId),
+    db().from("ordenes").select("*").eq("evento_id", eventoId),
+  ]);
+  const tickets = (ticketsRes.data ?? []).map(mapTicket);
+  const ordenes = (ordenesRes.data ?? []).map(mapOrden);
+  const activas = tickets.filter((t) => !t.cancelado);
+  const canceladas = tickets.filter((t) => t.cancelado);
+  const sinUsar = activas.filter((t) => !t.usado);
+  const ingresaron = activas.filter((t) => t.usado);
+  const recaudado = ordenes
+    .filter((o) => o.estado === "aprobado")
+    .reduce((sum, o) => sum + o.montoTotal, 0);
+  const reembolsado = ordenes
+    .filter((o) => o.estado === "reembolsado")
+    .reduce((sum, o) => sum + o.montoTotal, 0);
+  return {
+    vendidasActivas: activas.length,
+    recaudado,
+    sinUsar: sinUsar.length,
+    ingresaron: ingresaron.length,
+    canceladas: canceladas.length,
+    reembolsado,
+    capacidad,
+    disponibles: capacidad - activas.length,
+    totalOrdenes: ordenes.filter((o) => o.estado === "aprobado").length,
+  };
+}
+
+export async function getHistorialItems(): Promise<HistorialItem[]> {
+  const eventos = await getEventosFinalizados();
+  return Promise.all(
+    eventos.map(async (ev) => ({
+      evento: ev,
+      stats: await computeStatsParaEvento(ev.id, ev.capacidad),
+    }))
+  );
+}
+
+export async function crearNuevoEvento(
+  input: NuevoEventoInput
+): Promise<{ evento: Evento } | { error: string }> {
+  const activo = await getEventoActivo();
+  if (activo) {
+    return { error: "Ya hay un evento activo. Cerrá el actual antes de crear uno nuevo." };
+  }
+
+  if (!input.nombre.trim()) return { error: "El nombre es obligatorio" };
+  if (!input.fecha) return { error: "La fecha es obligatoria" };
+  if (input.precio <= 0) return { error: "El precio debe ser mayor a 0" };
+  if (input.capacidad < 1) return { error: "La capacidad debe ser al menos 1" };
+
+  let branding: Record<string, string> = {};
+  if (input.copiarBranding) {
+    const { data: anterior } = await db()
+      .from("eventos")
+      .select("*")
+      .eq("activo", false)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (anterior) {
+      branding = {
+        logo_url: anterior.logo_url ?? "",
+        flyer_url: anterior.flyer_url ?? "",
+        color_primario: anterior.color_primario ?? "#ff006e",
+        color_secundario: anterior.color_secundario ?? "#8338ec",
+        contacto_whatsapp: anterior.contacto_whatsapp ?? "",
+        contacto_email: anterior.contacto_email ?? "",
+        contacto_instagram: anterior.contacto_instagram ?? "",
+        texto_footer: anterior.texto_footer ?? "",
+        organizador_nombre: anterior.organizador_nombre ?? "",
+      };
+    }
+  }
+
+  const id = `evento-${crypto.randomUUID().slice(0, 8)}`;
+
+  const { data, error } = await db()
+    .from("eventos")
+    .insert({
+      id,
+      nombre: input.nombre.trim(),
+      fecha: input.fecha,
+      precio: input.precio,
+      capacidad: input.capacidad,
+      activo: true,
+      estado: "borrador",
+      logo_url: branding.logo_url ?? "",
+      flyer_url: branding.flyer_url ?? "",
+      color_primario: branding.color_primario ?? "#ff006e",
+      color_secundario: branding.color_secundario ?? "#8338ec",
+      descripcion: "",
+      lugar: "",
+      maps_url: "",
+      contacto_whatsapp: branding.contacto_whatsapp ?? "",
+      contacto_email: branding.contacto_email ?? "",
+      contacto_instagram: branding.contacto_instagram ?? "",
+      texto_footer: branding.texto_footer ?? "",
+      organizador_nombre: branding.organizador_nombre ?? "",
+    })
     .select()
     .single();
 

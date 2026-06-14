@@ -1,6 +1,7 @@
 import { isSupabaseConfigured } from "@/lib/config";
 import * as mock from "@/lib/mock/db";
 import * as supabase from "@/lib/supabase/queries";
+import type { NuevoEventoInput } from "@/types";
 
 function shouldUseSupabase() {
   return isSupabaseConfigured();
@@ -98,6 +99,36 @@ export async function cerrarEventoActivo() {
   return shouldUseSupabase()
     ? supabase.cerrarEventoActivo()
     : mock.cerrarEventoActivo();
+}
+
+export async function getEventosFinalizados() {
+  return shouldUseSupabase()
+    ? supabase.getEventosFinalizados()
+    : mock.getEventosFinalizados();
+}
+
+export async function getOrdenesByEvento(eventoId: string) {
+  return shouldUseSupabase()
+    ? supabase.getOrdenesByEvento(eventoId)
+    : mock.getOrdenesByEvento(eventoId);
+}
+
+export async function getTicketsByEvento(eventoId: string) {
+  return shouldUseSupabase()
+    ? supabase.getTicketsByEvento(eventoId)
+    : mock.getTicketsByEvento(eventoId);
+}
+
+export async function getHistorialItems() {
+  return shouldUseSupabase()
+    ? supabase.getHistorialItems()
+    : mock.getHistorialItems();
+}
+
+export async function crearNuevoEvento(input: NuevoEventoInput) {
+  return shouldUseSupabase()
+    ? supabase.crearNuevoEvento(input)
+    : mock.crearNuevoEvento(input);
 }
 
 export function getDbMode(): "supabase" | "mock" {

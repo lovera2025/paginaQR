@@ -6,6 +6,8 @@ import type {
   ActivityLog,
   AdminStats,
   Evento,
+  HistorialItem,
+  NuevoEventoInput,
   Orden,
   Ticket,
   VerifyResult,
@@ -13,6 +15,7 @@ import type {
 
 interface MockStore {
   evento: Evento;
+  eventosPasados: Evento[];
   ordenes: Orden[];
   tickets: Ticket[];
   activity: ActivityLog[];
@@ -27,6 +30,7 @@ function getStore(): MockStore {
   if (!global.__mockStore) {
     global.__mockStore = {
       evento: { ...SEED_EVENTO },
+      eventosPasados: [],
       ordenes: [],
       tickets: [],
       activity: [],
@@ -34,6 +38,9 @@ function getStore(): MockStore {
   }
   if (!global.__mockStore.evento.estado) {
     global.__mockStore.evento.estado = "borrador";
+  }
+  if (!global.__mockStore.eventosPasados) {
+    global.__mockStore.eventosPasados = [];
   }
   return global.__mockStore;
 }
@@ -381,5 +388,100 @@ export function cerrarEventoActivo(): { evento: Evento } | { error: string } {
 
   store.evento.estado = "finalizado";
   store.evento.activo = false;
+
+  // Guardar copia en historial
+  store.eventosPasados.unshift({ ...store.evento });
+
   return { evento: store.evento };
+}
+
+export function getEventosFinalizados(): Evento[] {
+  return getStore().eventosPasados;
+}
+
+export function getOrdenesByEvento(eventoId: string): Orden[] {
+  return getStore().ordenes.filter((o) => o.eventoId === eventoId);
+}
+
+export function getTicketsByEvento(eventoId: string): Ticket[] {
+  return getStore().tickets.filter((t) => t.eventoId === eventoId);
+}
+
+function computeStats(eventoId: string, capacidad: number): AdminStats {
+  const store = getStore();
+  const tickets = store.tickets.filter((t) => t.eventoId === eventoId);
+  const ordenes = store.ordenes.filter((o) => o.eventoId === eventoId);
+  const activas = tickets.filter((t) => !t.cancelado);
+  const canceladas = tickets.filter((t) => t.cancelado);
+  const sinUsar = activas.filter((t) => !t.usado);
+  const ingresaron = activas.filter((t) => t.usado);
+  const recaudado = ordenes
+    .filter((o) => o.estado === "aprobado")
+    .reduce((sum, o) => sum + o.montoTotal, 0);
+  const reembolsado = ordenes
+    .filter((o) => o.estado === "reembolsado")
+    .reduce((sum, o) => sum + o.montoTotal, 0);
+  return {
+    vendidasActivas: activas.length,
+    recaudado,
+    sinUsar: sinUsar.length,
+    ingresaron: ingresaron.length,
+    canceladas: canceladas.length,
+    reembolsado,
+    capacidad,
+    disponibles: capacidad - activas.length,
+    totalOrdenes: ordenes.filter((o) => o.estado === "aprobado").length,
+  };
+}
+
+export function getHistorialItems(): HistorialItem[] {
+  const store = getStore();
+  return store.eventosPasados.map((ev) => ({
+    evento: ev,
+    stats: computeStats(ev.id, ev.capacidad),
+  }));
+}
+
+export function crearNuevoEvento(
+  input: NuevoEventoInput
+): { evento: Evento } | { error: string } {
+  const store = getStore();
+
+  if (store.evento.activo) {
+    return { error: "Ya hay un evento activo. Cerrá el actual antes de crear uno nuevo." };
+  }
+
+  if (!input.nombre.trim()) return { error: "El nombre es obligatorio" };
+  if (!input.fecha) return { error: "La fecha es obligatoria" };
+  if (input.precio <= 0) return { error: "El precio debe ser mayor a 0" };
+  if (input.capacidad < 1) return { error: "La capacidad debe ser al menos 1" };
+
+  const anterior = store.eventosPasados[0] ?? null;
+
+  const nuevoEvento: Evento = {
+    id: `evento-${Date.now()}`,
+    nombre: input.nombre.trim(),
+    fecha: input.fecha,
+    precio: input.precio,
+    capacidad: input.capacidad,
+    activo: true,
+    estado: "borrador",
+    logoUrl: input.copiarBranding && anterior ? anterior.logoUrl : "",
+    flyerUrl: input.copiarBranding && anterior ? anterior.flyerUrl : "",
+    colorPrimario: input.copiarBranding && anterior ? anterior.colorPrimario : "#ff006e",
+    colorSecundario: input.copiarBranding && anterior ? anterior.colorSecundario : "#8338ec",
+    descripcion: "",
+    lugar: "",
+    mapsUrl: "",
+    contactoWhatsapp: input.copiarBranding && anterior ? anterior.contactoWhatsapp : "",
+    contactoEmail: input.copiarBranding && anterior ? anterior.contactoEmail : "",
+    contactoInstagram: input.copiarBranding && anterior ? anterior.contactoInstagram : "",
+    textoFooter: input.copiarBranding && anterior ? anterior.textoFooter : "",
+    organizadorNombre: input.copiarBranding && anterior ? anterior.organizadorNombre : "",
+  };
+
+  store.evento = nuevoEvento;
+  store.activity = [];
+
+  return { evento: nuevoEvento };
 }

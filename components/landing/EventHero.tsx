@@ -58,6 +58,12 @@ export function EventHero({ evento }: EventHeroProps) {
           >
             Comprar
           </Link>
+          <a
+            href="/admin"
+            className="hidden rounded-full border border-white/10 px-4 py-2 text-xs text-white/40 transition hover:text-white/70 md:inline-block"
+          >
+            Staff
+          </a>
         </nav>
 
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-20 pt-10 text-center">
