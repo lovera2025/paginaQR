@@ -147,7 +147,16 @@ async function trySendConfirmationEmail(
   return orden;
 }
 
-export async function approveOrden(ordenId: string): Promise<{ orden: Orden; tickets: Ticket[] } | { error: string }> {
+export function getOrdenByMpPaymentId(mpPaymentId: string): Orden | null {
+  return (
+    getStore().ordenes.find((o) => o.mpPaymentId === mpPaymentId) ?? null
+  );
+}
+
+export async function approveOrden(
+  ordenId: string,
+  mpPaymentId?: string
+): Promise<{ orden: Orden; tickets: Ticket[] } | { error: string }> {
   const store = getStore();
   const orden = store.ordenes.find((o) => o.id === ordenId);
   if (!orden) return { error: "Orden no encontrada" };
@@ -170,7 +179,7 @@ export async function approveOrden(ordenId: string): Promise<{ orden: Orden; tic
     return { error: "Capacidad agotada" };
 
   orden.estado = "aprobado";
-  orden.mpPaymentId = `mock_${orden.id.slice(0, 8)}`;
+  orden.mpPaymentId = mpPaymentId ?? `mock_${orden.id.slice(0, 8)}`;
 
   const tickets = createTicketsForOrden(orden);
   store.tickets.unshift(...tickets);

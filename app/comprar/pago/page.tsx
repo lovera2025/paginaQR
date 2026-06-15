@@ -1,15 +1,50 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 
 function PagoContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const ordenId = searchParams.get("orden");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [simulateMode, setSimulateMode] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!ordenId) return;
+
+    fetch("/api/checkout")
+      .then((r) => r.json())
+      .then((data) => {
+        const simulate = Boolean(data.simulate);
+        setSimulateMode(simulate);
+
+        if (!simulate) {
+          return fetch("/api/mp/preference", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ordenId }),
+          })
+            .then((r) => r.json())
+            .then((pref) => {
+              if (pref.initPoint) {
+                window.location.href = pref.initPoint;
+                return;
+              }
+              setError(pref.error ?? "No se pudo iniciar el pago");
+              setLoading(false);
+            });
+        }
+
+        setLoading(false);
+      })
+      .catch(() => {
+        setError("Error al cargar el pago");
+        setLoading(false);
+      });
+  }, [ordenId]);
 
   if (!ordenId) {
     return (
@@ -48,6 +83,15 @@ function PagoContent() {
     } else {
       router.push(`/compra/error?orden=${ordenId}`);
     }
+  }
+
+  if (loading || simulateMode === false) {
+    return (
+      <div className="text-center">
+        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+        <p className="text-white/70">Redirigiendo a Mercado Pago...</p>
+      </div>
+    );
   }
 
   return (

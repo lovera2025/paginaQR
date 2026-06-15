@@ -23,10 +23,16 @@ export async function createOrdenPendiente(
     : mock.createOrdenPendiente(input);
 }
 
-export async function approveOrden(ordenId: string) {
+export async function approveOrden(ordenId: string, mpPaymentId?: string) {
   return shouldUseSupabase()
-    ? supabase.approveOrden(ordenId)
-    : mock.approveOrden(ordenId);
+    ? supabase.approveOrden(ordenId, mpPaymentId)
+    : mock.approveOrden(ordenId, mpPaymentId);
+}
+
+export async function getOrdenByMpPaymentId(mpPaymentId: string) {
+  return shouldUseSupabase()
+    ? supabase.getOrdenByMpPaymentId(mpPaymentId)
+    : mock.getOrdenByMpPaymentId(mpPaymentId);
 }
 
 export async function rejectOrden(ordenId: string) {

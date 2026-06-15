@@ -38,6 +38,11 @@ export function TicketForm({ evento }: TicketFormProps) {
       return;
     }
 
+    if (data.mode === "mp" && data.initPoint) {
+      window.location.href = data.initPoint;
+      return;
+    }
+
     router.push(`/comprar/pago?orden=${data.ordenId}`);
   }
 

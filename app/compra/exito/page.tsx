@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { Orden } from "@/types";
@@ -8,24 +8,84 @@ import type { Orden } from "@/types";
 function ExitoContent() {
   const searchParams = useSearchParams();
   const ordenId = searchParams.get("orden");
+  const paymentId =
+    searchParams.get("payment_id") || searchParams.get("collection_id");
+  const mpReturn = Boolean(paymentId || searchParams.get("collection_status"));
   const [orden, setOrden] = useState<Orden | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
+  const loadOrden = useCallback(async () => {
+    if (!ordenId) return null;
+    const res = await fetch(`/api/ordenes/${ordenId}`);
+    const data = await res.json();
+    if (data.error) return { error: data.error as string, orden: null };
+    return { error: "", orden: data as Orden };
+  }, [ordenId]);
 
   useEffect(() => {
     if (!ordenId) return;
-    fetch(`/api/ordenes/${ordenId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) setError(data.error);
-        else if (data.estado !== "aprobado") {
-          setError("Pago no confirmado");
-        } else {
-          setOrden(data);
+
+    let cancelled = false;
+
+    async function load() {
+      if (mpReturn) {
+        await fetch("/api/mp/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ordenId, paymentId }),
+        });
+      }
+
+      const maxAttempts = mpReturn ? 15 : 1;
+
+      for (let attempt = 0; attempt < maxAttempts && !cancelled; attempt++) {
+        const result = await loadOrden();
+        if (cancelled || !result) return;
+
+        if (result.error) {
+          setError(result.error);
+          setLoading(false);
+          return;
         }
+
+        if (result.orden?.estado === "aprobado") {
+          setOrden(result.orden);
+          setPending(false);
+          setLoading(false);
+          return;
+        }
+
+        if (result.orden?.estado === "rechazado") {
+          setError("El pago fue rechazado");
+          setLoading(false);
+          return;
+        }
+
+        if (!mpReturn) {
+          setError("Pago no confirmado");
+          setLoading(false);
+          return;
+        }
+
+        setPending(true);
+        if (attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+
+      if (!cancelled) {
+        setError("Estamos confirmando tu pago. Revisá tu mail en unos minutos.");
         setLoading(false);
-      });
-  }, [ordenId]);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [ordenId, paymentId, mpReturn, loadOrden]);
 
   if (!ordenId) {
     return <p className="text-red-400">Orden no encontrada</p>;
@@ -33,12 +93,31 @@ function ExitoContent() {
 
   if (loading) {
     return (
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+      <div className="text-center">
+        <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+        <p className="text-white/60">
+          {pending ? "Confirmando pago con Mercado Pago..." : "Cargando..."}
+        </p>
+      </div>
     );
   }
 
-  if (error || !orden) {
-    return <p className="text-red-400">{error || "Orden no encontrada"}</p>;
+  if (error && !orden) {
+    return (
+      <div className="mx-auto max-w-lg text-center">
+        <p className="text-yellow-300">{error}</p>
+        <Link
+          href="/"
+          className="mt-6 inline-block rounded-xl border border-white/20 px-6 py-3 text-white"
+        >
+          Volver al evento
+        </Link>
+      </div>
+    );
+  }
+
+  if (!orden) {
+    return <p className="text-red-400">Orden no encontrada</p>;
   }
 
   return (

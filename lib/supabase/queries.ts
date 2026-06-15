@@ -124,8 +124,20 @@ export async function createOrdenPendiente(input: {
   return { orden: mapOrden(data) };
 }
 
+export async function getOrdenByMpPaymentId(
+  mpPaymentId: string
+): Promise<Orden | null> {
+  const { data } = await db()
+    .from("ordenes")
+    .select("*")
+    .eq("mp_payment_id", mpPaymentId)
+    .maybeSingle();
+  return data ? mapOrden(data) : null;
+}
+
 export async function approveOrden(
-  ordenId: string
+  ordenId: string,
+  mpPaymentId?: string
 ): Promise<{ orden: Orden; tickets: Ticket[] } | { error: string }> {
   const { data: ordenRow, error: ordenError } = await db()
     .from("ordenes")
@@ -158,10 +170,11 @@ export async function approveOrden(
   if (activos + orden.cantidad > evento.capacidad)
     return { error: "Capacidad agotada" };
 
-  const mpPaymentId = `mock_${orden.id.slice(0, 8)}`;
+  const resolvedMpPaymentId =
+    mpPaymentId ?? `mock_${orden.id.slice(0, 8)}`;
   const { error: updateError } = await db()
     .from("ordenes")
-    .update({ estado: "aprobado", mp_payment_id: mpPaymentId })
+    .update({ estado: "aprobado", mp_payment_id: resolvedMpPaymentId })
     .eq("id", ordenId)
     .eq("estado", "pendiente");
 
@@ -184,7 +197,11 @@ export async function approveOrden(
   if (ticketsError) return { error: ticketsError.message };
 
   const tickets = ticketsData.map(mapTicket);
-  const updatedOrden = { ...orden, estado: "aprobado" as const, mpPaymentId };
+  const updatedOrden = {
+    ...orden,
+    estado: "aprobado" as const,
+    mpPaymentId: resolvedMpPaymentId,
+  };
 
   await logActivity(
     "venta",
@@ -321,6 +338,15 @@ export async function refundOrden(
   if (!orden) return { error: "Orden no encontrada" };
   if (orden.estado === "reembolsado") return { error: "Ya reembolsada" };
   if (orden.estado !== "aprobado") return { error: "Solo órdenes aprobadas" };
+
+  if (orden.mpPaymentId && !orden.mpPaymentId.startsWith("mock_")) {
+    const { isMercadoPagoConfigured } = await import("@/lib/config");
+    if (isMercadoPagoConfigured()) {
+      const { refundMpPayment } = await import("@/lib/mercadopago/refund");
+      const mpResult = await refundMpPayment(orden.mpPaymentId);
+      if ("error" in mpResult) return mpResult;
+    }
+  }
 
   await db()
     .from("tickets")
