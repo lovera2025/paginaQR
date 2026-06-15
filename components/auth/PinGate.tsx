@@ -13,20 +13,44 @@ export function PinGate({ role, title, children }: PinGateProps) {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [infoMessage, setInfoMessage] = useState("");
 
   useEffect(() => {
     fetch("/api/auth/check")
       .then((r) => r.json())
       .then((data) => {
+        if (data.stale) {
+          setInfoMessage("El PIN fue actualizado. Ingresá con el PIN nuevo.");
+          setAuthorized(false);
+          return;
+        }
         if (role === "admin") setAuthorized(data.role === "admin");
         else setAuthorized(data.role === "scanner" || data.role === "admin");
       })
       .catch(() => setAuthorized(false));
   }, [role]);
 
+  useEffect(() => {
+    if (!authorized) return;
+    const interval = setInterval(() => {
+      fetch("/api/auth/check")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.stale) {
+            setInfoMessage("El PIN fue actualizado. Ingresá con el PIN nuevo.");
+            setAuthorized(false);
+            setPin("");
+          }
+        })
+        .catch(() => {});
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [authorized]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setInfoMessage("");
     const res = await fetch("/api/auth/pin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -56,6 +80,11 @@ export function PinGate({ role, title, children }: PinGateProps) {
         >
           <h1 className="mb-2 text-2xl font-bold">{title}</h1>
           <p className="mb-6 text-sm text-white/60">Ingresá el PIN de acceso</p>
+          {infoMessage && (
+            <p className="mb-4 rounded-lg bg-yellow-500/10 px-4 py-3 text-center text-sm text-yellow-300">
+              {infoMessage}
+            </p>
+          )}
           <input
             type="password"
             inputMode="numeric"

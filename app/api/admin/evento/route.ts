@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getEventoActivo, updateEvento } from "@/lib/db";
-import { requireRole } from "@/lib/auth/cookies";
+import { requireAuth } from "@/lib/auth/cookies";
 
 export async function GET() {
-  if (!requireRole("admin")) {
+  if (!(await requireAuth("admin"))) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
   const evento = await getEventoActivo();
@@ -14,7 +14,7 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  if (!requireRole("admin")) {
+  if (!(await requireAuth("admin"))) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 

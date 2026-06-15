@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS app_pins (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  admin_pin TEXT NOT NULL,
+  scanner_pin TEXT NOT NULL,
+  pin_revision INT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- ─── Índices ──────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_tickets_evento ON tickets(evento_id);

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { cancelTicket } from "@/lib/db";
-import { requireRole } from "@/lib/auth/cookies";
+import { requireAuth } from "@/lib/auth/cookies";
 
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  if (!requireRole("admin")) {
+  if (!(await requireAuth("admin"))) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 

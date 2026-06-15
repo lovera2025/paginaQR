@@ -85,6 +85,14 @@ const EMPTY_NUEVO = {
   copiarBranding: true,
 };
 
+const EMPTY_PIN_FORM = {
+  pinActual: "",
+  pinAdminNuevo: "",
+  pinScannerNuevo: "",
+  pinAdminConfirm: "",
+  pinScannerConfirm: "",
+};
+
 export function AdminDashboard() {
   const [tab, setTab] = useState<Tab>("resumen");
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -113,6 +121,10 @@ export function AdminDashboard() {
 
   // Seguridad
   const [security, setSecurity] = useState<SecurityInfo | null>(null);
+  const [pinChangeOpen, setPinChangeOpen] = useState(false);
+  const [pinForm, setPinForm] = useState(EMPTY_PIN_FORM);
+  const [pinChangeLoading, setPinChangeLoading] = useState(false);
+  const [pinChangeError, setPinChangeError] = useState("");
 
   function showToast(type: Toast["type"], text: string) {
     setToast({ type, text });
@@ -139,6 +151,19 @@ export function AdminDashboard() {
   }, [refresh]);
 
   useAdminRealtime(refresh);
+
+  useEffect(() => {
+    const checkSession = () => {
+      fetch("/api/auth/check")
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.stale) window.location.reload();
+        })
+        .catch(() => {});
+    };
+    const interval = setInterval(checkSession, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Cargar historial cuando se abre la pestaña
   useEffect(() => {
@@ -346,6 +371,57 @@ export function AdminDashboard() {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.reload();
+  }
+
+  async function handleChangePins(e: React.FormEvent) {
+    e.preventDefault();
+    setPinChangeError("");
+
+    if (!pinForm.pinActual) {
+      setPinChangeError("Ingresá tu PIN admin actual");
+      return;
+    }
+    if (pinForm.pinAdminNuevo.length < 6) {
+      setPinChangeError("El PIN admin nuevo debe tener al menos 6 caracteres");
+      return;
+    }
+    if (pinForm.pinScannerNuevo.length < 6) {
+      setPinChangeError("El PIN scanner nuevo debe tener al menos 6 caracteres");
+      return;
+    }
+    if (pinForm.pinAdminNuevo === pinForm.pinScannerNuevo) {
+      setPinChangeError("El PIN admin y el scanner deben ser distintos");
+      return;
+    }
+    if (pinForm.pinAdminNuevo !== pinForm.pinAdminConfirm) {
+      setPinChangeError("La confirmación del PIN admin no coincide");
+      return;
+    }
+    if (pinForm.pinScannerNuevo !== pinForm.pinScannerConfirm) {
+      setPinChangeError("La confirmación del PIN scanner no coincide");
+      return;
+    }
+
+    setPinChangeLoading(true);
+    try {
+      const res = await fetch("/api/admin/pins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pinActual: pinForm.pinActual,
+          pinAdminNuevo: pinForm.pinAdminNuevo,
+          pinScannerNuevo: pinForm.pinScannerNuevo,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPinChangeError(data.error ?? "No se pudieron actualizar los PINs");
+        return;
+      }
+      window.location.reload();
+    } finally {
+      setPinChangeLoading(false);
+    }
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -1044,9 +1120,11 @@ export function AdminDashboard() {
         {/* ── SEGURIDAD ────────────────────────────────────── */}
         {tab === "seguridad" && (
           <div className="max-w-xl space-y-6">
-            {/* Estado PINs */}
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <h2 className="mb-4 text-base font-bold">Estado de PINs</h2>
+              <h2 className="mb-2 text-base font-bold">Acceso al sistema</h2>
+              <p className="mb-4 text-sm text-white/60">
+                PIN Admin: panel completo. PIN Scanner: solo validar entradas en la puerta.
+              </p>
               {security === null ? (
                 <p className="text-sm text-white/40">Verificando…</p>
               ) : (
@@ -1055,7 +1133,7 @@ export function AdminDashboard() {
                     <span className="text-sm">PIN Admin</span>
                     {security.adminPinDebil ? (
                       <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs font-semibold text-red-400">
-                        Débil — cambiá el PIN antes del evento
+                        Cambiá el PIN de prueba
                       </span>
                     ) : (
                       <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
@@ -1067,7 +1145,7 @@ export function AdminDashboard() {
                     <span className="text-sm">PIN Scanner</span>
                     {security.scannerPinDebil ? (
                       <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs font-semibold text-red-400">
-                        Débil — cambiá el PIN antes del evento
+                        Cambiá el PIN de prueba
                       </span>
                     ) : (
                       <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
@@ -1077,55 +1155,114 @@ export function AdminDashboard() {
                   </div>
                   {security.ambosIguales && !security.adminPinDebil && (
                     <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
-                      Admin y Scanner tienen el mismo PIN. Se recomienda separarlos: uno para vos, otro para el personal de puerta.
+                      Usá PINs distintos: uno para vos (admin) y otro para la puerta (scanner).
                     </div>
                   )}
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  setPinChangeOpen(true);
+                  setPinForm(EMPTY_PIN_FORM);
+                  setPinChangeError("");
+                }}
+                className="mt-5 w-full rounded-xl bg-white py-3 text-sm font-semibold text-black hover:bg-white/90"
+              >
+                Cambiar PINs
+              </button>
             </div>
 
-            {/* Cómo cambiar PINs */}
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <h2 className="mb-3 text-base font-bold">Cómo cambiar los PINs</h2>
-              <p className="mb-4 text-sm text-white/60">
-                Los PINs se configuran como variables de entorno en Vercel (nunca en el código).
-              </p>
-              <ol className="space-y-2 text-sm text-white/70">
-                <li>
-                  <strong className="text-white">1.</strong>{" "}
-                  Entrá a{" "}
-                  <a
-                    href="https://vercel.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:text-white"
-                  >
-                    vercel.com
-                  </a>{" "}
-                  → tu proyecto → <strong className="text-white">Settings → Environment Variables</strong>
-                </li>
-                <li>
-                  <strong className="text-white">2.</strong>{" "}
-                  Editá <code className="rounded bg-white/10 px-1">ADMIN_PIN</code> y{" "}
-                  <code className="rounded bg-white/10 px-1">SCANNER_PIN</code>
-                </li>
-                <li>
-                  <strong className="text-white">3.</strong> Usá al menos 6 dígitos, distintos entre sí
-                </li>
-                <li>
-                  <strong className="text-white">4.</strong> Hacé un nuevo deploy (o redeploy) para que tome efecto
-                </li>
-                <li>
-                  <strong className="text-white">5.</strong> Cerrá sesión aquí y verificá que el nuevo PIN funcione
-                </li>
-              </ol>
-              <div className="mt-4 rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-white/50">
-                <p>ADMIN_PIN=••••••••  ← solo vos</p>
-                <p>SCANNER_PIN=••••••  ← podés compartir con staff de puerta</p>
+            {pinChangeOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+                <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#12121a] p-6">
+                  <h2 className="mb-2 text-lg font-bold">Cambiar PINs</h2>
+                  <p className="mb-4 text-sm text-white/60">
+                    Al guardar, vas a tener que ingresar de nuevo con el PIN admin nuevo.
+                  </p>
+                  <form onSubmit={handleChangePins} className="space-y-4">
+                    <div>
+                      <label className="mb-1 block text-sm text-white/60">PIN admin actual</label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        value={pinForm.pinActual}
+                        onChange={(e) => setPinForm({ ...pinForm, pinActual: e.target.value })}
+                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm text-white/60">PIN admin nuevo</label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        value={pinForm.pinAdminNuevo}
+                        onChange={(e) => setPinForm({ ...pinForm, pinAdminNuevo: e.target.value })}
+                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm text-white/60">Confirmar PIN admin nuevo</label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        value={pinForm.pinAdminConfirm}
+                        onChange={(e) => setPinForm({ ...pinForm, pinAdminConfirm: e.target.value })}
+                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm text-white/60">PIN scanner nuevo (puerta)</label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        value={pinForm.pinScannerNuevo}
+                        onChange={(e) => setPinForm({ ...pinForm, pinScannerNuevo: e.target.value })}
+                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm text-white/60">Confirmar PIN scanner nuevo</label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        value={pinForm.pinScannerConfirm}
+                        onChange={(e) => setPinForm({ ...pinForm, pinScannerConfirm: e.target.value })}
+                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                      />
+                    </div>
+                    {pinChangeError && (
+                      <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                        {pinChangeError}
+                      </p>
+                    )}
+                    <p className="text-xs text-white/40">Mínimo 6 caracteres. Admin y scanner deben ser distintos.</p>
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPinChangeOpen(false);
+                          setPinForm(EMPTY_PIN_FORM);
+                          setPinChangeError("");
+                        }}
+                        className="flex-1 rounded-xl border border-white/10 py-3 text-sm"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={pinChangeLoading}
+                        className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black disabled:opacity-50"
+                      >
+                        {pinChangeLoading ? "Guardando..." : "Guardar PINs"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Cerrar sesión */}
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
               <h2 className="mb-2 text-base font-bold">Sesión</h2>
               <p className="mb-4 text-sm text-white/60">

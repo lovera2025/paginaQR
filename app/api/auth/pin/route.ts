@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { setAuthCookie, type AuthRole } from "@/lib/auth/cookies";
-import { getAdminPin, getScannerPin } from "@/lib/config";
+import { getAppPins, validatePinForRole } from "@/lib/auth/pins";
 
 export async function POST(request: Request) {
   const { pin, role } = (await request.json()) as {
@@ -12,13 +12,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "PIN y rol requeridos" }, { status: 400 });
   }
 
-  const validPin =
-    role === "admin" ? pin === getAdminPin() : pin === getScannerPin();
-
-  if (!validPin) {
+  const valid = await validatePinForRole(role, pin);
+  if (!valid) {
     return NextResponse.json({ error: "PIN incorrecto" }, { status: 401 });
   }
 
-  setAuthCookie(role);
+  const pins = await getAppPins();
+  setAuthCookie(role, pins.pinRevision);
   return NextResponse.json({ ok: true, role });
 }
