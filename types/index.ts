@@ -26,10 +26,13 @@ export interface Evento {
   organizadorNombre: string;
 }
 
+export type PaymentMethod = "mp" | "talo";
+
 export interface Orden {
   id: string;
   eventoId: string;
   paymentId: string | null;
+  paymentMethod: PaymentMethod | null;
   compradorNombre: string;
   compradorEmail: string;
   cantidad: number;

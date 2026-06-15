@@ -61,6 +61,10 @@ export function mapOrden(row: OrdenRow): Orden {
     id: row.id,
     eventoId: row.evento_id,
     paymentId: row.mp_payment_id,
+    paymentMethod:
+      row.payment_method === "mp" || row.payment_method === "talo"
+        ? row.payment_method
+        : null,
     compradorNombre: row.comprador_nombre,
     compradorEmail: row.comprador_email,
     cantidad: row.cantidad,

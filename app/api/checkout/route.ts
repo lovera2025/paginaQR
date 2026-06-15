@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createOrdenPendiente } from "@/lib/db";
-import { canSimulatePayment } from "@/lib/talo/credentials";
+import { canSimulatePayment, getEnabledPaymentMethods } from "@/lib/payments/methods";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -22,13 +22,20 @@ export async function POST(request: Request) {
     });
   }
 
+  const methods = await getEnabledPaymentMethods();
+
   return NextResponse.json({
-    mode: "talo",
+    mode: "choose",
     ordenId: result.orden.id,
     orden: result.orden,
+    methods,
   });
 }
 
 export async function GET() {
-  return NextResponse.json({ simulate: await canSimulatePayment() });
+  const methods = await getEnabledPaymentMethods();
+  return NextResponse.json({
+    simulate: await canSimulatePayment(),
+    methods,
+  });
 }

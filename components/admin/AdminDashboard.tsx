@@ -34,14 +34,29 @@ interface SecurityInfo {
   ambosIguales: boolean;
 }
 
-interface PagosInfo {
+interface TaloPagosInfo {
   configured: boolean;
   hasSecret: boolean;
   userId: string;
   clientId: string;
   environment: "sandbox" | "production";
+  enabled: boolean;
   storedInDb: boolean;
   webhookUrl: string;
+}
+
+interface MpPagosInfo {
+  configured: boolean;
+  hasToken: boolean;
+  environment: "sandbox" | "production";
+  enabled: boolean;
+  storedInDb: boolean;
+  webhookUrl: string;
+}
+
+interface PagosInfo {
+  talo: TaloPagosInfo;
+  mp: MpPagosInfo;
 }
 
 interface HistorialDetalle {
@@ -95,11 +110,18 @@ const EMPTY_NUEVO = {
   copiarBranding: true,
 };
 
-const EMPTY_PAGOS_FORM = {
+const EMPTY_PAGOS_TALO_FORM = {
   userId: "",
   clientId: "",
   clientSecret: "",
   environment: "production" as "sandbox" | "production",
+  enabled: true,
+};
+
+const EMPTY_PAGOS_MP_FORM = {
+  accessToken: "",
+  environment: "production" as "sandbox" | "production",
+  enabled: true,
 };
 
 const EMPTY_PIN_FORM = {
@@ -143,13 +165,18 @@ export function AdminDashboard() {
   const [pinChangeLoading, setPinChangeLoading] = useState(false);
   const [pinChangeError, setPinChangeError] = useState("");
 
-  // Pagos (Talo)
+  // Pagos (Talo + Mercado Pago)
   const [pagosInfo, setPagosInfo] = useState<PagosInfo | null>(null);
-  const [pagosForm, setPagosForm] = useState(EMPTY_PAGOS_FORM);
-  const [pagosLoading, setPagosLoading] = useState(false);
-  const [pagosTestLoading, setPagosTestLoading] = useState(false);
-  const [pagosError, setPagosError] = useState("");
-  const [pagosTestOk, setPagosTestOk] = useState<boolean | null>(null);
+  const [pagosTaloForm, setPagosTaloForm] = useState(EMPTY_PAGOS_TALO_FORM);
+  const [pagosMpForm, setPagosMpForm] = useState(EMPTY_PAGOS_MP_FORM);
+  const [pagosTaloLoading, setPagosTaloLoading] = useState(false);
+  const [pagosMpLoading, setPagosMpLoading] = useState(false);
+  const [pagosTaloTestLoading, setPagosTaloTestLoading] = useState(false);
+  const [pagosMpTestLoading, setPagosMpTestLoading] = useState(false);
+  const [pagosTaloError, setPagosTaloError] = useState("");
+  const [pagosMpError, setPagosMpError] = useState("");
+  const [pagosTaloTestOk, setPagosTaloTestOk] = useState<boolean | null>(null);
+  const [pagosMpTestOk, setPagosMpTestOk] = useState<boolean | null>(null);
 
   function showToast(type: Toast["type"], text: string) {
     setToast({ type, text });
@@ -215,11 +242,17 @@ export function AdminDashboard() {
       .then((r) => r.json())
       .then((d) => {
         setPagosInfo(d);
-        setPagosForm({
-          userId: d.userId ?? "",
-          clientId: d.clientId ?? "",
+        setPagosTaloForm({
+          userId: d.talo?.userId ?? "",
+          clientId: d.talo?.clientId ?? "",
           clientSecret: "",
-          environment: d.environment === "sandbox" ? "sandbox" : "production",
+          environment: d.talo?.environment === "sandbox" ? "sandbox" : "production",
+          enabled: d.talo?.enabled !== false,
+        });
+        setPagosMpForm({
+          accessToken: "",
+          environment: d.mp?.environment === "sandbox" ? "sandbox" : "production",
+          enabled: d.mp?.enabled !== false,
         });
       });
   }, [tab, pagosInfo]);
@@ -414,30 +447,32 @@ export function AdminDashboard() {
     window.location.reload();
   }
 
-  async function handleSavePagos(e: React.FormEvent) {
+  async function handleSaveTaloPagos(e: React.FormEvent) {
     e.preventDefault();
-    setPagosError("");
-    setPagosTestOk(null);
+    setPagosTaloError("");
+    setPagosTaloTestOk(null);
 
-    if (!pagosForm.userId.trim() || !pagosForm.clientId.trim()) {
-      setPagosError("Completá User ID y Client ID");
+    if (!pagosTaloForm.userId.trim() || !pagosTaloForm.clientId.trim()) {
+      setPagosTaloError("Completá User ID y Client ID");
       return;
     }
 
-    if (!pagosForm.clientSecret.trim() && !pagosInfo?.hasSecret) {
-      setPagosError("Ingresá el Client Secret");
+    if (!pagosTaloForm.clientSecret.trim() && !pagosInfo?.talo.hasSecret) {
+      setPagosTaloError("Ingresá el Client Secret");
       return;
     }
 
-    setPagosLoading(true);
+    setPagosTaloLoading(true);
     try {
-      const payload: Record<string, string> = {
-        userId: pagosForm.userId.trim(),
-        clientId: pagosForm.clientId.trim(),
-        environment: pagosForm.environment,
+      const payload: Record<string, string | boolean> = {
+        provider: "talo",
+        userId: pagosTaloForm.userId.trim(),
+        clientId: pagosTaloForm.clientId.trim(),
+        environment: pagosTaloForm.environment,
+        enabled: pagosTaloForm.enabled,
       };
-      if (pagosForm.clientSecret.trim()) {
-        payload.clientSecret = pagosForm.clientSecret.trim();
+      if (pagosTaloForm.clientSecret.trim()) {
+        payload.clientSecret = pagosTaloForm.clientSecret.trim();
       }
 
       const res = await fetch("/api/admin/pagos", {
@@ -447,34 +482,101 @@ export function AdminDashboard() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setPagosError(data.error ?? "No se pudieron guardar las credenciales");
+        setPagosTaloError(data.error ?? "No se pudieron guardar las credenciales");
         return;
       }
 
       showToast("success", "Credenciales de Talo guardadas");
       setPagosInfo(null);
-      setPagosForm((f) => ({ ...f, clientSecret: "" }));
+      setPagosTaloForm((f) => ({ ...f, clientSecret: "" }));
     } finally {
-      setPagosLoading(false);
+      setPagosTaloLoading(false);
     }
   }
 
-  async function handleTestPagos() {
-    setPagosError("");
-    setPagosTestOk(null);
-    setPagosTestLoading(true);
+  async function handleSaveMpPagos(e: React.FormEvent) {
+    e.preventDefault();
+    setPagosMpError("");
+    setPagosMpTestOk(null);
+
+    if (!pagosMpForm.accessToken.trim() && !pagosInfo?.mp.hasToken) {
+      setPagosMpError("Ingresá el Access Token");
+      return;
+    }
+
+    setPagosMpLoading(true);
     try {
-      const res = await fetch("/api/admin/pagos/test", { method: "POST" });
+      const payload: Record<string, string | boolean> = {
+        provider: "mp",
+        environment: pagosMpForm.environment,
+        enabled: pagosMpForm.enabled,
+      };
+      if (pagosMpForm.accessToken.trim()) {
+        payload.accessToken = pagosMpForm.accessToken.trim();
+      }
+
+      const res = await fetch("/api/admin/pagos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
       const data = await res.json();
       if (!res.ok) {
-        setPagosError(data.error ?? "No se pudo conectar con Talo");
-        setPagosTestOk(false);
+        setPagosMpError(data.error ?? "No se pudieron guardar las credenciales");
         return;
       }
-      setPagosTestOk(true);
+
+      showToast("success", "Credenciales de Mercado Pago guardadas");
+      setPagosInfo(null);
+      setPagosMpForm((f) => ({ ...f, accessToken: "" }));
+    } finally {
+      setPagosMpLoading(false);
+    }
+  }
+
+  async function handleTestTaloPagos() {
+    setPagosTaloError("");
+    setPagosTaloTestOk(null);
+    setPagosTaloTestLoading(true);
+    try {
+      const res = await fetch("/api/admin/pagos/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "talo" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPagosTaloError(data.error ?? "No se pudo conectar con Talo");
+        setPagosTaloTestOk(false);
+        return;
+      }
+      setPagosTaloTestOk(true);
       showToast("success", data.message ?? "Conexión OK");
     } finally {
-      setPagosTestLoading(false);
+      setPagosTaloTestLoading(false);
+    }
+  }
+
+  async function handleTestMpPagos() {
+    setPagosMpError("");
+    setPagosMpTestOk(null);
+    setPagosMpTestLoading(true);
+    try {
+      const res = await fetch("/api/admin/pagos/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "mp" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPagosMpError(data.error ?? "No se pudo conectar con Mercado Pago");
+        setPagosMpTestOk(false);
+        return;
+      }
+      setPagosMpTestOk(true);
+      showToast("success", data.message ?? "Conexión OK");
+    } finally {
+      setPagosMpTestLoading(false);
     }
   }
 
@@ -1223,14 +1325,21 @@ export function AdminDashboard() {
           </div>
         )}
 
-        {/* ── PAGOS (TALO) ───────────────────────────────── */}
+        {/* ── PAGOS (TALO + MERCADO PAGO) ────────────────── */}
         {tab === "pagos" && (
           <div className="max-w-xl space-y-6">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <h2 className="text-base font-bold">Cobros de entradas</h2>
+              <p className="mt-2 text-sm text-white/60">
+                Configurá acá cómo cobrar. No hace falta entrar a Vercel. Activá los
+                métodos que quieras; el comprador elige al pagar.
+              </p>
+            </div>
+
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <h2 className="mb-2 text-base font-bold">Cobros con transferencia (Talo)</h2>
+              <h2 className="mb-2 text-base font-bold">Transferencia — Talo Pay</h2>
               <p className="mb-4 text-sm text-white/60">
-                Pegá las credenciales de tu cuenta Talo. Los compradores transferirán y
-                recibirán el QR por mail automáticamente.
+                Los compradores transfieren y reciben el QR por mail automáticamente.
               </p>
 
               <div className="mb-5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
@@ -1252,27 +1361,39 @@ export function AdminDashboard() {
               {pagosInfo === null ? (
                 <p className="text-sm text-white/40">Cargando...</p>
               ) : (
-                <form onSubmit={handleSavePagos} className="space-y-4">
+                <form onSubmit={handleSaveTaloPagos} className="space-y-4">
+                  <label className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
+                    <span className="text-sm">Ofrecer transferencia (Talo)</span>
+                    <input
+                      type="checkbox"
+                      checked={pagosTaloForm.enabled}
+                      onChange={(e) =>
+                        setPagosTaloForm({ ...pagosTaloForm, enabled: e.target.checked })
+                      }
+                      className="h-4 w-4"
+                    />
+                  </label>
+
                   <Field
                     label="User ID"
-                    value={pagosForm.userId}
-                    onChange={(v) => setPagosForm({ ...pagosForm, userId: v })}
+                    value={pagosTaloForm.userId}
+                    onChange={(v) => setPagosTaloForm({ ...pagosTaloForm, userId: v })}
                   />
                   <Field
                     label="Client ID"
-                    value={pagosForm.clientId}
-                    onChange={(v) => setPagosForm({ ...pagosForm, clientId: v })}
+                    value={pagosTaloForm.clientId}
+                    onChange={(v) => setPagosTaloForm({ ...pagosTaloForm, clientId: v })}
                   />
                   <div>
                     <label className="mb-1 block text-sm text-white/60">Client Secret</label>
                     <input
                       type="password"
-                      value={pagosForm.clientSecret}
+                      value={pagosTaloForm.clientSecret}
                       onChange={(e) =>
-                        setPagosForm({ ...pagosForm, clientSecret: e.target.value })
+                        setPagosTaloForm({ ...pagosTaloForm, clientSecret: e.target.value })
                       }
                       placeholder={
-                        pagosInfo.hasSecret
+                        pagosInfo.talo.hasSecret
                           ? "Dejá vacío para mantener el actual"
                           : "Pegá el Client Secret"
                       }
@@ -1282,10 +1403,10 @@ export function AdminDashboard() {
                   <div>
                     <label className="mb-1 block text-sm text-white/60">Ambiente</label>
                     <select
-                      value={pagosForm.environment}
+                      value={pagosTaloForm.environment}
                       onChange={(e) =>
-                        setPagosForm({
-                          ...pagosForm,
+                        setPagosTaloForm({
+                          ...pagosTaloForm,
                           environment: e.target.value as "sandbox" | "production",
                         })
                       }
@@ -1296,16 +1417,9 @@ export function AdminDashboard() {
                     </select>
                   </div>
 
-                  <div className="rounded-xl border border-white/10 px-4 py-3">
-                    <p className="mb-1 text-xs text-white/50">Webhook (automático, no hace falta copiarlo)</p>
-                    <p className="break-all font-mono text-xs text-white/70">
-                      {pagosInfo.webhookUrl}
-                    </p>
-                  </div>
-
                   <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
                     <span className="text-sm">Estado</span>
-                    {pagosInfo.configured ? (
+                    {pagosInfo.talo.configured ? (
                       <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
                         Configurado
                       </span>
@@ -1316,33 +1430,161 @@ export function AdminDashboard() {
                     )}
                   </div>
 
-                  {pagosTestOk === true && (
+                  {pagosTaloTestOk === true && (
                     <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-300">
                       Conexión con Talo verificada correctamente.
                     </div>
                   )}
 
-                  {pagosError && (
+                  {pagosTaloError && (
                     <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                      {pagosError}
+                      {pagosTaloError}
                     </p>
                   )}
 
                   <div className="flex gap-3">
                     <button
                       type="submit"
-                      disabled={pagosLoading}
+                      disabled={pagosTaloLoading}
                       className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black hover:bg-white/90 disabled:opacity-50"
                     >
-                      {pagosLoading ? "Guardando..." : "Guardar credenciales"}
+                      {pagosTaloLoading ? "Guardando..." : "Guardar"}
                     </button>
                     <button
                       type="button"
-                      onClick={handleTestPagos}
-                      disabled={pagosTestLoading || !pagosInfo.configured}
+                      onClick={handleTestTaloPagos}
+                      disabled={pagosTaloTestLoading || !pagosInfo.talo.configured}
                       className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold hover:bg-white/5 disabled:opacity-50"
                     >
-                      {pagosTestLoading ? "Probando..." : "Probar conexión"}
+                      {pagosTaloTestLoading ? "Probando..." : "Probar"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+              <h2 className="mb-2 text-base font-bold">Tarjeta — Mercado Pago</h2>
+              <p className="mb-4 text-sm text-white/60">
+                Los compradores pagan con tarjeta, débito o saldo de Mercado Pago.
+              </p>
+
+              <div className="mb-5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
+                <p className="font-semibold">¿Dónde lo encuentro?</p>
+                <p className="mt-1 text-blue-100/90">
+                  Entrá a{" "}
+                  <a
+                    href="https://www.mercadopago.com.ar/developers/panel/app"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    mercadopago.com.ar/developers
+                  </a>{" "}
+                  → Tu app → Credenciales de producción (o de prueba) → Access Token
+                </p>
+                <p className="mt-2 text-xs text-blue-100/80">
+                  La primera vez, configurá el webhook en MP con la URL de abajo (evento: Pagos).
+                </p>
+              </div>
+
+              {pagosInfo === null ? (
+                <p className="text-sm text-white/40">Cargando...</p>
+              ) : (
+                <form onSubmit={handleSaveMpPagos} className="space-y-4">
+                  <label className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
+                    <span className="text-sm">Ofrecer tarjeta (Mercado Pago)</span>
+                    <input
+                      type="checkbox"
+                      checked={pagosMpForm.enabled}
+                      onChange={(e) =>
+                        setPagosMpForm({ ...pagosMpForm, enabled: e.target.checked })
+                      }
+                      className="h-4 w-4"
+                    />
+                  </label>
+
+                  <div>
+                    <label className="mb-1 block text-sm text-white/60">Access Token</label>
+                    <input
+                      type="password"
+                      value={pagosMpForm.accessToken}
+                      onChange={(e) =>
+                        setPagosMpForm({ ...pagosMpForm, accessToken: e.target.value })
+                      }
+                      placeholder={
+                        pagosInfo.mp.hasToken
+                          ? "Dejá vacío para mantener el actual"
+                          : "Pegá el Access Token"
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm text-white/60">Ambiente</label>
+                    <select
+                      value={pagosMpForm.environment}
+                      onChange={(e) =>
+                        setPagosMpForm({
+                          ...pagosMpForm,
+                          environment: e.target.value as "sandbox" | "production",
+                        })
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                    >
+                      <option value="production">Producción (pagos reales)</option>
+                      <option value="sandbox">Prueba (sandbox)</option>
+                    </select>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 px-4 py-3">
+                    <p className="mb-1 text-xs text-white/50">Webhook (copiar en panel de MP)</p>
+                    <p className="break-all font-mono text-xs text-white/70">
+                      {pagosInfo.mp.webhookUrl}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
+                    <span className="text-sm">Estado</span>
+                    {pagosInfo.mp.configured ? (
+                      <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
+                        Configurado
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-xs font-semibold text-yellow-300">
+                        Falta configurar
+                      </span>
+                    )}
+                  </div>
+
+                  {pagosMpTestOk === true && (
+                    <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-300">
+                      Conexión con Mercado Pago verificada correctamente.
+                    </div>
+                  )}
+
+                  {pagosMpError && (
+                    <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                      {pagosMpError}
+                    </p>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={pagosMpLoading}
+                      className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black hover:bg-white/90 disabled:opacity-50"
+                    >
+                      {pagosMpLoading ? "Guardando..." : "Guardar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleTestMpPagos}
+                      disabled={pagosMpTestLoading || !pagosInfo.mp.configured}
+                      className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold hover:bg-white/5 disabled:opacity-50"
+                    >
+                      {pagosMpTestLoading ? "Probando..." : "Probar"}
                     </button>
                   </div>
                 </form>

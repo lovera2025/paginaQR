@@ -15,6 +15,7 @@ import type {
   HistorialItem,
   NuevoEventoInput,
   Orden,
+  PaymentMethod,
   Ticket,
   VerifyResult,
 } from "@/types";
@@ -137,11 +138,15 @@ export async function getOrdenByPaymentId(
 
 export async function setOrdenPaymentId(
   ordenId: string,
-  paymentId: string
+  paymentId: string,
+  paymentMethod?: PaymentMethod
 ): Promise<{ ok: true } | { error: string }> {
+  const update: Record<string, string> = { mp_payment_id: paymentId };
+  if (paymentMethod) update.payment_method = paymentMethod;
+
   const { error } = await db()
     .from("ordenes")
-    .update({ mp_payment_id: paymentId })
+    .update(update)
     .eq("id", ordenId)
     .eq("estado", "pendiente");
 
@@ -151,7 +156,8 @@ export async function setOrdenPaymentId(
 
 export async function approveOrden(
   ordenId: string,
-  paymentId?: string
+  paymentId?: string,
+  paymentMethod?: PaymentMethod
 ): Promise<{ orden: Orden; tickets: Ticket[] } | { error: string }> {
   const { data: ordenRow, error: ordenError } = await db()
     .from("ordenes")
@@ -185,9 +191,14 @@ export async function approveOrden(
     return { error: "Capacidad agotada" };
 
   const resolvedPaymentId = paymentId ?? `mock_${orden.id.slice(0, 8)}`;
+  const resolvedMethod = paymentMethod ?? orden.paymentMethod ?? null;
   const { error: updateError } = await db()
     .from("ordenes")
-    .update({ estado: "aprobado", mp_payment_id: resolvedPaymentId })
+    .update({
+      estado: "aprobado",
+      mp_payment_id: resolvedPaymentId,
+      payment_method: resolvedMethod,
+    })
     .eq("id", ordenId)
     .eq("estado", "pendiente");
 
@@ -214,6 +225,7 @@ export async function approveOrden(
     ...orden,
     estado: "aprobado" as const,
     paymentId: resolvedPaymentId,
+    paymentMethod: resolvedMethod,
   };
 
   await logActivity(
@@ -351,6 +363,15 @@ export async function refundOrden(
   if (!orden) return { error: "Orden no encontrada" };
   if (orden.estado === "reembolsado") return { error: "Ya reembolsada" };
   if (orden.estado !== "aprobado") return { error: "Solo órdenes aprobadas" };
+
+  if (orden.paymentMethod === "mp" && orden.paymentId && !orden.paymentId.startsWith("mock_")) {
+    const { isMercadoPagoConfigured } = await import("@/lib/mercadopago/credentials");
+    if (await isMercadoPagoConfigured()) {
+      const { refundMpPayment } = await import("@/lib/mercadopago/refund");
+      const mpResult = await refundMpPayment(orden.paymentId);
+      if ("error" in mpResult) return mpResult;
+    }
+  }
 
   await db()
     .from("tickets")

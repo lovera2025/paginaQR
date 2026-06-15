@@ -25,6 +25,7 @@ export interface OrdenRow {
   id: string;
   evento_id: string;
   mp_payment_id: string | null;
+  payment_method: string | null;
   comprador_nombre: string;
   comprador_email: string;
   cantidad: number;

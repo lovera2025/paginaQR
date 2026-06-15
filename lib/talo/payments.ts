@@ -154,7 +154,7 @@ export async function processTaloPayment(
   if (!orden) return { error: "Orden no encontrada" };
 
   if (orden.estado === "aprobado") {
-    await approveOrden(ordenId, paymentId);
+    await approveOrden(ordenId, paymentId, "talo");
     return { ok: true };
   }
 
@@ -163,7 +163,7 @@ export async function processTaloPayment(
   }
 
   if (payment.payment_status === "SUCCESS" || payment.payment_status === "OVERPAID") {
-    const result = await approveOrden(ordenId, paymentId);
+    const result = await approveOrden(ordenId, paymentId, "talo");
     if ("error" in result) return { error: result.error };
     return { ok: true };
   }

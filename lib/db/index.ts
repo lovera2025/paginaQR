@@ -1,7 +1,7 @@
 import { isSupabaseConfigured } from "@/lib/config";
 import * as mock from "@/lib/mock/db";
 import * as supabase from "@/lib/supabase/queries";
-import type { NuevoEventoInput } from "@/types";
+import type { NuevoEventoInput, PaymentMethod } from "@/types";
 
 function shouldUseSupabase() {
   return isSupabaseConfigured();
@@ -23,10 +23,14 @@ export async function createOrdenPendiente(
     : mock.createOrdenPendiente(input);
 }
 
-export async function approveOrden(ordenId: string, paymentId?: string) {
+export async function approveOrden(
+  ordenId: string,
+  paymentId?: string,
+  paymentMethod?: PaymentMethod
+) {
   return shouldUseSupabase()
-    ? supabase.approveOrden(ordenId, paymentId)
-    : mock.approveOrden(ordenId, paymentId);
+    ? supabase.approveOrden(ordenId, paymentId, paymentMethod)
+    : mock.approveOrden(ordenId, paymentId, paymentMethod);
 }
 
 export async function getOrdenByPaymentId(paymentId: string) {
@@ -35,10 +39,14 @@ export async function getOrdenByPaymentId(paymentId: string) {
     : mock.getOrdenByPaymentId(paymentId);
 }
 
-export async function setOrdenPaymentId(ordenId: string, paymentId: string) {
+export async function setOrdenPaymentId(
+  ordenId: string,
+  paymentId: string,
+  paymentMethod?: PaymentMethod
+) {
   return shouldUseSupabase()
-    ? supabase.setOrdenPaymentId(ordenId, paymentId)
-    : mock.setOrdenPaymentId(ordenId, paymentId);
+    ? supabase.setOrdenPaymentId(ordenId, paymentId, paymentMethod)
+    : mock.setOrdenPaymentId(ordenId, paymentId, paymentMethod);
 }
 
 export async function rejectOrden(ordenId: string) {

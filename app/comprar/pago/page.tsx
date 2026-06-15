@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPrecio } from "@/lib/utils";
+import type { PaymentMethod } from "@/types";
 
 interface PaymentInfo {
   paymentId: string;
@@ -20,23 +21,47 @@ function PagoContent() {
   const ordenId = searchParams.get("orden");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [simulateMode, setSimulateMode] = useState<boolean | null>(null);
+  const [simulateMode, setSimulateMode] = useState(false);
+  const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
   const [payment, setPayment] = useState<PaymentInfo | null>(null);
   const [copied, setCopied] = useState<"alias" | "cvu" | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const [redirectingMp, setRedirectingMp] = useState(false);
 
-  const loadPayment = useCallback(async () => {
+  const startMercadoPago = useCallback(async () => {
     if (!ordenId) return;
+    setRedirectingMp(true);
+    setError("");
 
-    const checkoutRes = await fetch("/api/checkout");
-    const checkoutData = await checkoutRes.json();
-    const simulate = Boolean(checkoutData.simulate);
-    setSimulateMode(simulate);
+    const res = await fetch("/api/mp/preference", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ordenId }),
+    });
+    const data = await res.json();
 
-    if (simulate) {
-      setLoading(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo iniciar el pago con Mercado Pago");
+      setRedirectingMp(false);
+      setSelectedMethod(null);
       return;
     }
+
+    if (data.initPoint) {
+      window.location.href = data.initPoint;
+      return;
+    }
+
+    setError("Mercado Pago no devolvió URL de pago");
+    setRedirectingMp(false);
+    setSelectedMethod(null);
+  }, [ordenId]);
+
+  const startTalo = useCallback(async () => {
+    if (!ordenId) return;
+    setLoading(true);
+    setError("");
 
     const res = await fetch("/api/talo/payment", {
       method: "POST",
@@ -46,8 +71,9 @@ function PagoContent() {
     const data = await res.json();
 
     if (!res.ok) {
-      setError(data.error ?? "No se pudo iniciar el pago");
+      setError(data.error ?? "No se pudo iniciar el pago con Talo");
       setLoading(false);
+      setSelectedMethod(null);
       return;
     }
 
@@ -56,11 +82,39 @@ function PagoContent() {
   }, [ordenId]);
 
   useEffect(() => {
-    loadPayment().catch(() => {
-      setError("Error al cargar el pago");
-      setLoading(false);
-    });
-  }, [loadPayment]);
+    if (!ordenId) return;
+
+    fetch("/api/checkout")
+      .then((r) => r.json())
+      .then((data) => {
+        const simulate = Boolean(data.simulate);
+        const available = (data.methods ?? []) as PaymentMethod[];
+        setSimulateMode(simulate);
+        setMethods(available);
+
+        if (simulate) {
+          setLoading(false);
+          return;
+        }
+
+        if (available.length === 1) {
+          const only = available[0];
+          setSelectedMethod(only);
+          if (only === "mp") {
+            startMercadoPago();
+          } else {
+            startTalo();
+          }
+          return;
+        }
+
+        setLoading(false);
+      })
+      .catch(() => {
+        setError("Error al cargar opciones de pago");
+        setLoading(false);
+      });
+  }, [ordenId, startMercadoPago, startTalo]);
 
   useEffect(() => {
     if (!payment || !ordenId || simulateMode) return;
@@ -83,7 +137,7 @@ function PagoContent() {
         const orden = await ordenRes.json();
 
         if (orden.estado === "aprobado") {
-          router.push(`/compra/exito?orden=${ordenId}`);
+          router.push(`/compra/exito?orden=${ordenId}&metodo=talo`);
           return;
         }
         if (orden.estado === "rechazado") {
@@ -102,6 +156,15 @@ function PagoContent() {
       cancelled = true;
     };
   }, [payment, ordenId, router, simulateMode]);
+
+  async function handleChooseMethod(method: PaymentMethod) {
+    setSelectedMethod(method);
+    if (method === "mp") {
+      await startMercadoPago();
+    } else {
+      await startTalo();
+    }
+  }
 
   async function copyText(text: string, field: "alias" | "cvu") {
     try {
@@ -152,11 +215,15 @@ function PagoContent() {
     );
   }
 
-  if (loading) {
+  if (loading || redirectingMp) {
     return (
       <div className="text-center">
         <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-        <p className="text-white/70">Preparando tu pago...</p>
+        <p className="text-white/70">
+          {redirectingMp
+            ? "Redirigiendo a Mercado Pago..."
+            : "Preparando tu pago..."}
+        </p>
       </div>
     );
   }
@@ -167,7 +234,7 @@ function PagoContent() {
         <div className="mb-8 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-4">
           <p className="text-sm font-semibold text-yellow-300">Modo simulación</p>
           <p className="mt-1 text-xs text-white/60">
-            Conectá Talo en Admin → Pagos para cobros reales
+            Configurá Talo o Mercado Pago en Admin → Pagos para cobros reales
           </p>
         </div>
 
@@ -204,10 +271,72 @@ function PagoContent() {
     );
   }
 
+  if (!selectedMethod && methods.length > 1) {
+    return (
+      <div className="mx-auto max-w-lg">
+        <h1 className="mb-2 text-center text-2xl font-bold">¿Cómo querés pagar?</h1>
+        <p className="mb-8 text-center text-white/60">
+          Elegí el método que prefieras. En ambos casos recibirás tu QR por mail.
+        </p>
+
+        {error && (
+          <p className="mb-4 rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {error}
+          </p>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {methods.includes("mp") && (
+            <button
+              type="button"
+              onClick={() => handleChooseMethod("mp")}
+              className="rounded-2xl border border-white/10 bg-white/5 p-6 text-left transition hover:border-white/30 hover:bg-white/10"
+            >
+              <p className="text-2xl">💳</p>
+              <p className="mt-3 text-lg font-bold">Tarjeta</p>
+              <p className="mt-1 text-sm text-white/60">Mercado Pago</p>
+              <p className="mt-2 text-xs text-white/40">Débito, crédito o saldo MP</p>
+            </button>
+          )}
+
+          {methods.includes("talo") && (
+            <button
+              type="button"
+              onClick={() => handleChooseMethod("talo")}
+              className="rounded-2xl border border-white/10 bg-white/5 p-6 text-left transition hover:border-white/30 hover:bg-white/10"
+            >
+              <p className="text-2xl">🏦</p>
+              <p className="mt-3 text-lg font-bold">Transferencia</p>
+              <p className="mt-1 text-sm text-white/60">Talo Pay</p>
+              <p className="mt-2 text-xs text-white/40">Desde tu banco o billetera</p>
+            </button>
+          )}
+        </div>
+
+        <Link href="/comprar" className="mt-8 block text-center text-sm text-white/40 hover:text-white">
+          ← Volver
+        </Link>
+      </div>
+    );
+  }
+
   if (error || !payment) {
     return (
       <div className="mx-auto max-w-md text-center">
         <p className="mb-4 text-red-400">{error || "No se pudo cargar el pago"}</p>
+        {methods.length > 1 && (
+          <button
+            type="button"
+            onClick={() => {
+              setError("");
+              setSelectedMethod(null);
+              setPayment(null);
+            }}
+            className="mb-4 text-sm underline text-white/60 hover:text-white"
+          >
+            Elegir otro método de pago
+          </button>
+        )}
         <Link href="/comprar" className="inline-block underline">
           Volver a comprar
         </Link>
@@ -276,8 +405,22 @@ function PagoContent() {
         </div>
       )}
 
-      <Link href="/comprar" className="mt-8 block text-center text-sm text-white/40 hover:text-white">
-        ← Volver
+      {methods.length > 1 && (
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedMethod(null);
+            setPayment(null);
+            setWaiting(false);
+          }}
+          className="mt-6 block w-full text-center text-sm text-white/40 hover:text-white"
+        >
+          ← Elegir otro método de pago
+        </button>
+      )}
+
+      <Link href="/comprar" className="mt-4 block text-center text-sm text-white/40 hover:text-white">
+        Volver a comprar
       </Link>
     </div>
   );

@@ -8,6 +8,10 @@ import type { Orden } from "@/types";
 function ExitoContent() {
   const searchParams = useSearchParams();
   const ordenId = searchParams.get("orden");
+  const metodo = searchParams.get("metodo");
+  const paymentId =
+    searchParams.get("payment_id") || searchParams.get("collection_id");
+  const isMpReturn = metodo === "mp" || Boolean(paymentId);
   const [orden, setOrden] = useState<Orden | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -27,15 +31,23 @@ function ExitoContent() {
     let cancelled = false;
 
     async function load() {
-      const maxAttempts = 20;
+      const maxAttempts = isMpReturn ? 15 : 20;
 
       for (let attempt = 0; attempt < maxAttempts && !cancelled; attempt++) {
-        if (attempt > 0) {
-          await fetch("/api/talo/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ordenId }),
-          });
+        if (attempt > 0 || isMpReturn) {
+          if (isMpReturn) {
+            await fetch("/api/mp/sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ordenId, paymentId }),
+            });
+          } else {
+            await fetch("/api/talo/sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ordenId }),
+            });
+          }
         }
 
         const result = await loadOrden();
@@ -79,7 +91,7 @@ function ExitoContent() {
     return () => {
       cancelled = true;
     };
-  }, [ordenId, loadOrden]);
+  }, [ordenId, paymentId, isMpReturn, loadOrden]);
 
   if (!ordenId) {
     return <p className="text-red-400">Orden no encontrada</p>;
@@ -90,7 +102,11 @@ function ExitoContent() {
       <div className="text-center">
         <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
         <p className="text-white/60">
-          {pending ? "Confirmando tu transferencia..." : "Cargando..."}
+          {pending
+            ? isMpReturn
+              ? "Confirmando pago con Mercado Pago..."
+              : "Confirmando tu transferencia..."
+            : "Cargando..."}
         </p>
       </div>
     );

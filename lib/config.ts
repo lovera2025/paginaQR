@@ -34,6 +34,20 @@ export function isTaloConfiguredFromEnv(): boolean {
   );
 }
 
+export function getMpAccessTokenFromEnv(): string {
+  return process.env.MP_ACCESS_TOKEN?.trim() || "";
+}
+
+export function getMpEnvironmentFromEnv(): "sandbox" | "production" {
+  return process.env.MP_ENVIRONMENT?.trim() === "sandbox"
+    ? "sandbox"
+    : "production";
+}
+
+export function isMercadoPagoConfiguredFromEnv(): boolean {
+  return Boolean(getMpAccessTokenFromEnv());
+}
+
 /** Demo / local: simular pago hasta que Talo esté conectado. */
 export function getAdminPin(): string {
   return process.env.ADMIN_PIN ?? "1234";

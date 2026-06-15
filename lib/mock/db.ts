@@ -9,6 +9,7 @@ import type {
   HistorialItem,
   NuevoEventoInput,
   Orden,
+  PaymentMethod,
   Ticket,
   VerifyResult,
 } from "@/types";
@@ -100,6 +101,7 @@ export function createOrdenPendiente(input: {
     id: uuidv4(),
     eventoId: evento.id,
     paymentId: null,
+    paymentMethod: null,
     compradorNombre: input.compradorNombre.trim(),
     compradorEmail: input.compradorEmail.trim().toLowerCase(),
     cantidad: input.cantidad,
@@ -155,18 +157,21 @@ export function getOrdenByPaymentId(paymentId: string): Orden | null {
 
 export function setOrdenPaymentId(
   ordenId: string,
-  paymentId: string
+  paymentId: string,
+  paymentMethod?: PaymentMethod
 ): { ok: true } | { error: string } {
   const orden = getStore().ordenes.find((o) => o.id === ordenId);
   if (!orden) return { error: "Orden no encontrada" };
   if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
   orden.paymentId = paymentId;
+  if (paymentMethod) orden.paymentMethod = paymentMethod;
   return { ok: true };
 }
 
 export async function approveOrden(
   ordenId: string,
-  paymentId?: string
+  paymentId?: string,
+  paymentMethod?: PaymentMethod
 ): Promise<{ orden: Orden; tickets: Ticket[] } | { error: string }> {
   const store = getStore();
   const orden = store.ordenes.find((o) => o.id === ordenId);
@@ -191,6 +196,7 @@ export async function approveOrden(
 
   orden.estado = "aprobado";
   orden.paymentId = paymentId ?? `mock_${orden.id.slice(0, 8)}`;
+  if (paymentMethod) orden.paymentMethod = paymentMethod;
 
   const tickets = createTicketsForOrden(orden);
   store.tickets.unshift(...tickets);

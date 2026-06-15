@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { getEventoActivo, getOrden, setOrdenPaymentId } from "@/lib/db";
 import { createTaloPaymentForOrden } from "@/lib/talo/payments";
 
+import { isPaymentMethodAvailable } from "@/lib/payments/methods";
+
 export async function POST(request: Request) {
+  if (!(await isPaymentMethodAvailable("talo"))) {
+    return NextResponse.json({ error: "Talo Pay no está disponible" }, { status: 400 });
+  }
   const body = await request.json();
   const ordenId = String(body.ordenId ?? "").trim();
   if (!ordenId) {
@@ -27,7 +32,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: payment.error }, { status: 502 });
   }
 
-  await setOrdenPaymentId(ordenId, payment.paymentId);
+  await setOrdenPaymentId(ordenId, payment.paymentId, "talo");
 
   return NextResponse.json({
     paymentId: payment.paymentId,
