@@ -8,9 +8,6 @@ import type { Orden } from "@/types";
 function ExitoContent() {
   const searchParams = useSearchParams();
   const ordenId = searchParams.get("orden");
-  const paymentId =
-    searchParams.get("payment_id") || searchParams.get("collection_id");
-  const mpReturn = Boolean(paymentId || searchParams.get("collection_status"));
   const [orden, setOrden] = useState<Orden | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -30,17 +27,17 @@ function ExitoContent() {
     let cancelled = false;
 
     async function load() {
-      if (mpReturn) {
-        await fetch("/api/mp/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ordenId, paymentId }),
-        });
-      }
-
-      const maxAttempts = mpReturn ? 15 : 1;
+      const maxAttempts = 20;
 
       for (let attempt = 0; attempt < maxAttempts && !cancelled; attempt++) {
+        if (attempt > 0) {
+          await fetch("/api/talo/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ordenId }),
+          });
+        }
+
         const result = await loadOrden();
         if (cancelled || !result) return;
 
@@ -58,18 +55,15 @@ function ExitoContent() {
         }
 
         if (result.orden?.estado === "rechazado") {
-          setError("El pago fue rechazado");
+          setError("El pago fue rechazado o expiró");
           setLoading(false);
           return;
         }
 
-        if (!mpReturn) {
-          setError("Pago no confirmado");
-          setLoading(false);
-          return;
+        if (result.orden?.estado === "pendiente" && attempt === 0) {
+          setPending(true);
         }
 
-        setPending(true);
         if (attempt < maxAttempts - 1) {
           await new Promise((r) => setTimeout(r, 2000));
         }
@@ -85,7 +79,7 @@ function ExitoContent() {
     return () => {
       cancelled = true;
     };
-  }, [ordenId, paymentId, mpReturn, loadOrden]);
+  }, [ordenId, loadOrden]);
 
   if (!ordenId) {
     return <p className="text-red-400">Orden no encontrada</p>;
@@ -96,7 +90,7 @@ function ExitoContent() {
       <div className="text-center">
         <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
         <p className="text-white/60">
-          {pending ? "Confirmando pago con Mercado Pago..." : "Cargando..."}
+          {pending ? "Confirmando tu transferencia..." : "Cargando..."}
         </p>
       </div>
     );

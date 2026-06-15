@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { approveOrden } from "@/lib/db";
-import { canSimulatePayment } from "@/lib/config";
+import { canSimulatePayment } from "@/lib/talo/credentials";
 
 export async function POST(request: Request) {
-  if (!canSimulatePayment()) {
+  if (!(await canSimulatePayment())) {
     return NextResponse.json({ error: "Simulación no disponible" }, { status: 403 });
   }
 

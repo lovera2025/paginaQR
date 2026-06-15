@@ -1,7 +1,7 @@
 # PaginaQR / JR Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: 14 junio 2026 — Historial + PINs en Supabase desplegados. **Próximo chat: Mercado Pago**
+> Última actualización: **15 junio 2026 (madrugada)** — Mercado Pago **productivo probado** (compra real + mail + QR). **Hoy tarde:** demo jefe + ops antes de abrir venta.
 
 ## Meta inmediata
 
@@ -28,7 +28,7 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 | URL producción | ✅ https://jreventos-entradas.vercel.app |
 | Evento demo configurado | ✅ Fiesta de Promo + flyer + Junior Eventos |
 | QR + scanner (1 uso por entrada) | ✅ Funciona |
-| Reembolso en DB + invalidación scanner | ✅ Funciona (MP refund pendiente) |
+| Reembolso en DB + invalidación scanner | ✅ Funciona |
 | Upload logo/flyer en admin | ✅ Bloque 1 (vie 12) |
 | Botones Admin / Scanner en UI | ✅ Bloque 1 (vie 12) |
 | Branding "JR Eventos" (título pestaña) | ✅ Bloque 1 (vie 12) |
@@ -45,14 +45,23 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 | Botón Staff en landing | ✅ Nav hero → `/admin` |
 | PINs en Supabase (`app_pins`) | ✅ Cambiar desde Admin → Seguridad |
 | Invalidar sesión al cambiar PIN | ✅ Mensaje + re-login con PIN nuevo |
-| Mercado Pago (Checkout Pro) | ❌ **Próximo chat** |
-| Reembolso vía API MP | ❌ Con MP |
+| Mercado Pago (Checkout Pro) | ✅ **Productivo probado — 15 jun madrugada** |
+| Webhook `/api/webhook-mp` + sync `/api/mp/sync` | ✅ Configurado (prueba + productivo en panel MP) |
+| Reembolso vía API MP | ✅ Implementado (`lib/mercadopago/refund.ts`) · probar antes del evento |
+| Precio venta definitivo | ⚠️ **$8.000** en admin (prueba fue $1.000) |
 | PIN fuerte en producción | ⚠️ Cambiar desde Seguridad (no dejar `1234`) |
+| `APP_MODE=production` en Vercel | ⚠️ Recomendado antes de abrir venta |
 | Dominio propio | ❌ Opcional (ej. entradas.jreventos.com) |
 
-**Momento exacto:** Compra **simulada** en prod. Mail + scanner + historial + PINs desde admin OK. **Próximo:** MP (Checkout Pro + webhook) cuando haya Access Token.
+**Momento exacto:** Compra **real con MP productivo** OK (redirect → webhook/sync → mail QR → scanner). Evento sigue en **`borrador`**. Sandbox MP falló (mezcla test/real); producción OK tras **redeploy** con `MP_ACCESS_TOKEN` productivo.
 
-**Commits recientes:** `5050c7f` (PINs Supabase) · `e6ef189` (historial + Staff) · `22323c9` (docs) · `187fd79` (reinicio + estados)
+**Lecciones MP (15 jun):**
+- Sin **redeploy** en Vercel, el token viejo sigue activo → error *“una de las partes es de prueba”*.
+- Comisión MP ~**4,1%** (ej. $1.000 → neto ~$959 en cuenta del hijo).
+- Acreditación tarjeta puede demorar (ej. disponible **2 jul**) — avisar al jefe.
+- Solo hace falta **`MP_ACCESS_TOKEN`** (Checkout Pro); Public Key no se usa.
+
+**Commits recientes:** `a965f26` (redeploy MP prod) · `1de2524` (Checkout Pro + webhook) · `5050c7f` (PINs) · `e6ef189` (historial)
 
 ---
 
@@ -61,8 +70,10 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 - **Integración elegida:** Checkout Pro (redirect + webhook). No link de pago suelto, no Checkout API.
 - **Cuenta:** Mercado Pago del **hijo** del jefe (amigo de confianza del dev).
 - **La plata del evento cae en esa cuenta MP** (reembolsos también salen de ahí).
-- **Paso 0 (gestión):** app "JR Eventos Entradas" en [developers.mercadopago.com](https://www.mercadopago.com.ar/developers) → **Access Token test** (sábado) + **producción** (lunes).
-- **Implementación en código:** Bloque 2 (sábado 13).
+- **App:** "JR Eventos Entradas" · Checkout Pro · credenciales **productivas activas** (15 jun).
+- **Vercel:** `MP_ACCESS_TOKEN` = Access Token **productivo** · redeploy obligatorio al cambiar.
+- **Webhook:** `https://jreventos-entradas.vercel.app/api/webhook-mp` · evento **Pagos** · modos prueba + productivo en panel MP.
+- **Implementación:** `lib/mercadopago/` · `app/api/webhook-mp` · `app/api/mp/sync` · `app/api/mp/preference` · commit `1de2524`.
 
 ---
 
@@ -135,17 +146,19 @@ Objetivo: construir en capas, probar cada pieza sin ensuciar datos reales, y no 
 | 3 | **Estados evento** | ✅ borrador → venta → finalizado |
 | 4 | **Historial** | ✅ Pestaña + crear evento |
 | 5 | **PINs Supabase** | ✅ Cambiar desde admin · invalidar sesión |
-| 6 | **Mercado Pago** | ❌ **Próximo** (Checkout Pro + webhook) |
-| 7 | **Ops prod** | ❌ Reembolso MP, `APP_MODE=production`, demo jefe |
+| 6 | **Mercado Pago** | ✅ Checkout Pro + webhook + compra real probada |
+| 7 | **Ops prod** | ⚠️ **Hoy lun 15 tarde** — PINs, precio $8k, demo jefe, abrir venta |
 
 **Decisión acordada (13 jun):** Historial **antes** que MP — MP es más sensible; conviene tener archivado/listas listas antes de plata real.
 
-### Ciclo de prueba (sin MP)
+### Ciclo de prueba (borrador — con MP productivo)
 
 ```
-Reiniciar ventas → compra simulada → mail Resend → /compra/exito → scanner
-→ reembolso (opcional) → Reiniciar otra vez
+Reiniciar ventas → /comprar → MP (tarjeta real) → mail QR → scanner
+→ reembolso opcional → Reiniciar otra vez
 ```
+
+(Simulación verde/rojo solo si no hay `MP_ACCESS_TOKEN` en Vercel.)
 
 ### Capacidad y contadores (cómo funciona hoy)
 
@@ -160,7 +173,7 @@ Reiniciar ventas → compra simulada → mail Resend → /compra/exito → scann
 | Acción | Regla |
 |--------|--------|
 | Mail | Solo enviar si `email_sent_at` es null en la orden |
-| Webhook MP (futuro) | No duplicar tickets si mismo `mp_payment_id` |
+| Webhook MP | No duplicar tickets si mismo `mp_payment_id` · sync en `/compra/exito` como respaldo |
 | Reiniciar | Botón disabled mientras corre; confirmación `REINICIAR` |
 | Cambiar PIN | Pedir PIN admin actual; subir `pin_revision`; invalidar cookies |
 
@@ -449,38 +462,64 @@ Ej: `Tu entrada — Fiesta de Promo · 20 jun`
 
 ---
 
-### Mercado Pago (PRÓXIMO — más sensible)
+### Mercado Pago ✅ (madrugada lun 15)
 
-- [ ] Checkout Pro + webhook `/api/webhook-mp`
-- [ ] Idempotencia pago · sacar simulación con token en prod
-- [ ] Reembolso API MP desde admin
-
-**Pruebas MP:**
-- [ ] Compra test tarjetas sandbox
-- [ ] 3 entradas → 3 QRs → scanner OK
+- [x] App "JR Eventos Entradas" · Checkout Pro
+- [x] Credenciales productivas activas
+- [x] `MP_ACCESS_TOKEN` productivo en Vercel + **redeploy**
+- [x] Webhook `/api/webhook-mp` (panel MP prueba + productivo)
+- [x] Compra real probada ($1.000 test) → mail QR → acreditación MP cuenta hijo
+- [x] Reembolso API MP en código (probar desde admin antes del 20)
+- [ ] Scanner con QR de prueba (verde + amarillo re-escaneo)
+- [ ] Compra 3 entradas → 3 QRs (opcional)
 
 ---
 
-### Cierre producción (lun 15)
+### Lunes 15 — plan del día (tarde, según jefe)
 
-- [ ] Reembolso MP + PIN fuerte + `APP_MODE=production`
-- [ ] Token MP producción · 1 compra real chica
-- [ ] Demo al jefe
+**Estado al mediodía:** MP OK · evento en **borrador** · precio prueba $1.000 · venta real objetivo **$8.000**.
+
+| # | Tarea | Quién / cuándo |
+|---|--------|----------------|
+| 1 | Escanear QR de prueba en `/scanner` | Dev |
+| 2 | **Reiniciar ventas** (borrador, confirmar `REINICIAR`) | Dev |
+| 3 | Admin → Apariencia → **precio $8.000** + flyer coherente | Dev |
+| 4 | **PINs fuertes** en Seguridad (admin + scanner) | Dev |
+| 5 | `APP_MODE=production` en Vercel (opcional recomendado) | Dev |
+| 6 | **Demo al jefe** — compra real chica o walkthrough admin/scanner | Tarde |
+| 7 | Si jefe aprueba → **Abrir venta** (borrador → venta) | Tras OK jefe |
+| 8 | Avisar jefe: comisión MP ~4% · plata tarjeta puede liberar **después** del 20 | Demo |
+
+**No hacer hasta que jefe diga:** Abrir venta pública (bloquea Reiniciar).
+
+**Entre 16–19 jun:** solo pruebas menores — no features grandes.
+
+---
+
+### Cierre producción (lun 15 tarde)
+
+- [x] Token MP producción · 1 compra real probada
+- [ ] Scanner prueba + Reiniciar ventas
+- [ ] Precio $8.000 guardado
+- [ ] PIN fuerte + `APP_MODE=production`
+- [ ] Reembolso MP probado desde admin (opcional, recupera plata test)
+- [ ] Demo al jefe · **Abrir venta** si aprueba
 
 ---
 
 ## Checklist "listo lunes tarde"
 
 ```
+[x] Compro 1 entrada con MP productivo → plata en cuenta del hijo (prueba $1.000)
+[x] Me llega mail con logo y QR
+[x] Simulación de pago NO visible en producción (MP redirect)
+[ ] Escaneo QR prueba → verde; repito → amarillo
+[ ] Reiniciar ventas + precio $8.000 en admin
 [ ] /admin con PIN nuevo (no 1234)
-[ ] Subo flyer y logo con botón (no URL manual)
-[ ] Abro /scanner desde admin
-[ ] Compro 1 entrada con MP → plata en cuenta del hijo
-[ ] Me llega mail con logo y QR
-[ ] Escaneo → verde; repito mismo QR → amarillo
-[ ] Compro 3 entradas → 3 QRs, 3 ingresos OK
-[ ] Reembolso desde admin → QR inválido en scanner
-[ ] Simulación de pago NO visible en producción
+[ ] Demo al jefe → Abrir venta si aprueba
+[ ] Compro 3 entradas → 3 QRs (opcional)
+[ ] Reembolso desde admin → QR inválido (opcional, probar API MP)
+[ ] Subo flyer y logo con botón si hace falta actualizar precio visual
 ```
 
 ---
@@ -491,7 +530,7 @@ Ej: `Tu entrada — Fiesta de Promo · 20 jun`
 APP_MODE=production
 ADMIN_PIN=********          # fallback si app_pins vacía; opcional tras migrar PINs
 SCANNER_PIN=********        # fallback si app_pins vacía
-MP_ACCESS_TOKEN=********          # test sábado → prod lunes
+MP_ACCESS_TOKEN=********          # productivo (activo 15 jun) · redeploy al cambiar
 RESEND_API_KEY=********
 RESEND_FROM=Entradas <...@...>
 NEXT_PUBLIC_APP_URL=https://jreventos-entradas.vercel.app
@@ -509,7 +548,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 
 - **A Mock** ✅
 - **B Supabase** ✅ (Storage + upload en admin)
-- **C MP + Resend** ❌ — en curso (meta lun 15 tarde)
+- **C MP + Resend** ✅ — MP productivo probado · ops lun 15 tarde pendiente
 - **D Post-evento** — dominio propio, Supabase Auth opcional, Checkout Bricks opcional
 
 ---
@@ -550,10 +589,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 - [x] Crear nuevo evento desde admin
 - [x] Botón Staff en nav del hero → /admin
 - [x] PINs en Supabase — cambiar desde Seguridad (sin Vercel)
-- [ ] Mercado Pago Checkout Pro + webhook `/api/webhook-mp`
-- [ ] Reembolso vía API MP desde admin
-- [ ] Snapshot branding al comprar
-- [ ] MP token producción + compra real de prueba
+- [x] Mercado Pago Checkout Pro + webhook `/api/webhook-mp`
+- [x] Reembolso vía API MP desde admin (código listo · probar en admin)
+- [x] MP token producción + compra real de prueba
+- [ ] Snapshot branding al comprar (opcional)
 - [ ] Cambiar PINs de prueba en prod + `APP_MODE=production`
 
 ---
@@ -567,7 +606,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 - [x] Build OK
 - [x] Título pestaña → "JR Eventos"
 - [x] Variables Resend en producción
-- [ ] Variable `MP_ACCESS_TOKEN`
+- [x] Variable `MP_ACCESS_TOKEN` (productivo)
 - [ ] PINs fuertes guardados en Supabase (desde Seguridad)
 - [ ] Dominio propio (opcional, post-evento)
 
@@ -588,34 +627,32 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ## Pendiente opcional (post Bloque 1)
 
 - [x] Link **Staff** en nav del hero → `/admin`
-- [ ] Verificar precio en DB vs flyer si no coincide en producción
+- [ ] Verificar precio **$8.000** en admin vs flyer (prueba fue $1.000)
 
 ---
 
-## Qué falta — resumen para próxima sesión
+## Qué falta — resumen para próxima sesión (lun 15 tarde)
 
 | Prioridad | Bloque | Tareas |
 |-----------|--------|--------|
-| 1 | **Mercado Pago** | Access Token (hijo) · Checkout Pro · webhook `/api/webhook-mp` · sacar simulación |
-| 2 | **Ops prod** | Cambiar PINs desde Seguridad · `APP_MODE=production` · reembolso MP · demo jefe (lun 15) |
-| 3 | **Opcional** | Snapshot branding al comprar · dominio propio |
+| 1 | **Ops hoy** | Scanner prueba · Reiniciar · precio $8k · PINs · demo jefe |
+| 2 | **Go live** | **Abrir venta** cuando diga el jefe (borrador → venta) |
+| 3 | **Opcional** | Reembolso MP test · 3 entradas · snapshot branding · dominio propio |
 
-**Gestión paralela:** recuperar contraseña/token MP del hijo
+**Ciclo actual (borrador):** Scanner QR prueba → Reiniciar → precio 8000 → esperar jefe → Abrir venta
 
-**Ciclo prueba actual (borrador):** Reiniciar → comprar simulado → mail → scanner → Reiniciar
-
-**Antes de venta real:** Abrir venta pública · MP conectado · PINs fuertes en Supabase
+**Antes de venta real al público:** PINs fuertes · precio $8.000 · MP productivo OK ✅
 
 ---
-## Cómo probar el flujo (simulación — hasta conectar MP)
+## Cómo probar el flujo (MP productivo — borrador)
 
-1. `/comprar` → formulario → simular pago exitoso
-2. `/compra/exito` → mensaje “QR enviado al mail” (QR **solo** en Gmail)
-3. `/admin` → contadores suben · **Resumen** → estado Borrador · **Reiniciar ventas** si querés limpiar
-4. `/scanner` → escanear QR del mail → verde → re-escanear → amarillo "ya usada"
-5. Admin → reembolsar → scanner → rojo "cancelada"
+1. `/comprar` → formulario → redirect Mercado Pago → tarjeta **real**
+2. `/compra/exito` → “QR enviado al mail” (QR **solo** en Gmail)
+3. `/scanner` → escanear QR → verde → re-escanear → amarillo
+4. Admin → **Reiniciar ventas** (`REINICIAR`) mientras esté en borrador
+5. Admin → reembolsar (opcional) → scanner → rojo "cancelada"
 
-**Nota:** Sin `MP_ACCESS_TOKEN`, `canSimulatePayment()` → simulación activa. **Abrir venta pública** bloquea Reiniciar.
+**Nota:** Con `MP_ACCESS_TOKEN` en Vercel no hay simulación. **Abrir venta** bloquea Reiniciar.
 
 ---
 
@@ -631,9 +668,9 @@ npm run update:evento    # actualizar evento demo en Supabase
 
 ## Cómo continuar en un nuevo chat
 
-1. Leer este archivo — **Estado actual**, **PINs**, **Historial**, **Reiniciar ventas**
-2. Meta: **operativo lun 15 tarde**, evento **vie 20**
-3. Usuario dirá **“implementá Mercado Pago”** — requiere `MP_ACCESS_TOKEN` del hijo
-4. Verificar: PINs cambiados en Seguridad · migración `app_pins.sql` corrida · deploy `5050c7f`+
-5. Migraciones Supabase si faltan: `email_sent_at.sql`, `evento_estado.sql`, `app_pins.sql`
-6. Orden: **MP → ops prod** (historial y PINs ya hechos)
+1. Leer este archivo — **Estado actual**, **Plan lun 15 tarde**, **MP productivo**
+2. Meta: **demo jefe hoy tarde** · evento **vie 20**
+3. Evento en **borrador** hasta que jefe diga **Abrir venta**
+4. Pendiente: scanner prueba · Reiniciar · precio **$8.000** · PINs · opcional reembolso test
+5. Deploy actual: `a965f26`+ · MP en `1de2524`
+6. **Redeploy Vercel** siempre que cambies `MP_ACCESS_TOKEN`

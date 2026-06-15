@@ -99,7 +99,7 @@ export function createOrdenPendiente(input: {
   const orden: Orden = {
     id: uuidv4(),
     eventoId: evento.id,
-    mpPaymentId: null,
+    paymentId: null,
     compradorNombre: input.compradorNombre.trim(),
     compradorEmail: input.compradorEmail.trim().toLowerCase(),
     cantidad: input.cantidad,
@@ -147,15 +147,26 @@ async function trySendConfirmationEmail(
   return orden;
 }
 
-export function getOrdenByMpPaymentId(mpPaymentId: string): Orden | null {
+export function getOrdenByPaymentId(paymentId: string): Orden | null {
   return (
-    getStore().ordenes.find((o) => o.mpPaymentId === mpPaymentId) ?? null
+    getStore().ordenes.find((o) => o.paymentId === paymentId) ?? null
   );
+}
+
+export function setOrdenPaymentId(
+  ordenId: string,
+  paymentId: string
+): { ok: true } | { error: string } {
+  const orden = getStore().ordenes.find((o) => o.id === ordenId);
+  if (!orden) return { error: "Orden no encontrada" };
+  if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
+  orden.paymentId = paymentId;
+  return { ok: true };
 }
 
 export async function approveOrden(
   ordenId: string,
-  mpPaymentId?: string
+  paymentId?: string
 ): Promise<{ orden: Orden; tickets: Ticket[] } | { error: string }> {
   const store = getStore();
   const orden = store.ordenes.find((o) => o.id === ordenId);
@@ -179,7 +190,7 @@ export async function approveOrden(
     return { error: "Capacidad agotada" };
 
   orden.estado = "aprobado";
-  orden.mpPaymentId = mpPaymentId ?? `mock_${orden.id.slice(0, 8)}`;
+  orden.paymentId = paymentId ?? `mock_${orden.id.slice(0, 8)}`;
 
   const tickets = createTicketsForOrden(orden);
   store.tickets.unshift(...tickets);

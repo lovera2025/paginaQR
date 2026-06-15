@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS app_pins (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS app_payments (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  talo_user_id TEXT NOT NULL DEFAULT '',
+  talo_client_id TEXT NOT NULL DEFAULT '',
+  talo_client_secret TEXT NOT NULL DEFAULT '',
+  environment TEXT NOT NULL DEFAULT 'production'
+    CHECK (environment IN ('sandbox', 'production')),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- ─── Índices ──────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_tickets_evento ON tickets(evento_id);

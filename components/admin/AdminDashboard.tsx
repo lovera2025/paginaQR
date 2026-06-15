@@ -25,13 +25,23 @@ import {
   ticketEstadoLabel,
 } from "@/lib/utils";
 
-type Tab = "resumen" | "compras" | "entradas" | "apariencia" | "actividad" | "historial" | "seguridad";
+type Tab = "resumen" | "compras" | "entradas" | "apariencia" | "actividad" | "historial" | "pagos" | "seguridad";
 type Toast = { type: "success" | "error"; text: string };
 
 interface SecurityInfo {
   adminPinDebil: boolean;
   scannerPinDebil: boolean;
   ambosIguales: boolean;
+}
+
+interface PagosInfo {
+  configured: boolean;
+  hasSecret: boolean;
+  userId: string;
+  clientId: string;
+  environment: "sandbox" | "production";
+  storedInDb: boolean;
+  webhookUrl: string;
 }
 
 interface HistorialDetalle {
@@ -85,6 +95,13 @@ const EMPTY_NUEVO = {
   copiarBranding: true,
 };
 
+const EMPTY_PAGOS_FORM = {
+  userId: "",
+  clientId: "",
+  clientSecret: "",
+  environment: "production" as "sandbox" | "production",
+};
+
 const EMPTY_PIN_FORM = {
   pinActual: "",
   pinAdminNuevo: "",
@@ -125,6 +142,14 @@ export function AdminDashboard() {
   const [pinForm, setPinForm] = useState(EMPTY_PIN_FORM);
   const [pinChangeLoading, setPinChangeLoading] = useState(false);
   const [pinChangeError, setPinChangeError] = useState("");
+
+  // Pagos (Talo)
+  const [pagosInfo, setPagosInfo] = useState<PagosInfo | null>(null);
+  const [pagosForm, setPagosForm] = useState(EMPTY_PAGOS_FORM);
+  const [pagosLoading, setPagosLoading] = useState(false);
+  const [pagosTestLoading, setPagosTestLoading] = useState(false);
+  const [pagosError, setPagosError] = useState("");
+  const [pagosTestOk, setPagosTestOk] = useState<boolean | null>(null);
 
   function showToast(type: Toast["type"], text: string) {
     setToast({ type, text });
@@ -182,6 +207,22 @@ export function AdminDashboard() {
       .then((r) => r.json())
       .then((d) => setSecurity(d));
   }, [tab, security]);
+
+  // Cargar pagos cuando se abre la pestaña
+  useEffect(() => {
+    if (tab !== "pagos" || pagosInfo !== null) return;
+    fetch("/api/admin/pagos")
+      .then((r) => r.json())
+      .then((d) => {
+        setPagosInfo(d);
+        setPagosForm({
+          userId: d.userId ?? "",
+          clientId: d.clientId ?? "",
+          clientSecret: "",
+          environment: d.environment === "sandbox" ? "sandbox" : "production",
+        });
+      });
+  }, [tab, pagosInfo]);
 
   async function loadHistorialDetalle(eventoId: string) {
     if (selectedHistorialId === eventoId) {
@@ -373,6 +414,70 @@ export function AdminDashboard() {
     window.location.reload();
   }
 
+  async function handleSavePagos(e: React.FormEvent) {
+    e.preventDefault();
+    setPagosError("");
+    setPagosTestOk(null);
+
+    if (!pagosForm.userId.trim() || !pagosForm.clientId.trim()) {
+      setPagosError("Completá User ID y Client ID");
+      return;
+    }
+
+    if (!pagosForm.clientSecret.trim() && !pagosInfo?.hasSecret) {
+      setPagosError("Ingresá el Client Secret");
+      return;
+    }
+
+    setPagosLoading(true);
+    try {
+      const payload: Record<string, string> = {
+        userId: pagosForm.userId.trim(),
+        clientId: pagosForm.clientId.trim(),
+        environment: pagosForm.environment,
+      };
+      if (pagosForm.clientSecret.trim()) {
+        payload.clientSecret = pagosForm.clientSecret.trim();
+      }
+
+      const res = await fetch("/api/admin/pagos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPagosError(data.error ?? "No se pudieron guardar las credenciales");
+        return;
+      }
+
+      showToast("success", "Credenciales de Talo guardadas");
+      setPagosInfo(null);
+      setPagosForm((f) => ({ ...f, clientSecret: "" }));
+    } finally {
+      setPagosLoading(false);
+    }
+  }
+
+  async function handleTestPagos() {
+    setPagosError("");
+    setPagosTestOk(null);
+    setPagosTestLoading(true);
+    try {
+      const res = await fetch("/api/admin/pagos/test", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setPagosError(data.error ?? "No se pudo conectar con Talo");
+        setPagosTestOk(false);
+        return;
+      }
+      setPagosTestOk(true);
+      showToast("success", data.message ?? "Conexión OK");
+    } finally {
+      setPagosTestLoading(false);
+    }
+  }
+
   async function handleChangePins(e: React.FormEvent) {
     e.preventDefault();
     setPinChangeError("");
@@ -431,6 +536,7 @@ export function AdminDashboard() {
     { id: "apariencia", label: "Apariencia" },
     { id: "actividad", label: "Actividad" },
     { id: "historial", label: "Historial" },
+    { id: "pagos", label: "Pagos" },
     { id: "seguridad", label: "Seguridad" },
   ];
 
@@ -1114,6 +1220,134 @@ export function AdminDashboard() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* ── PAGOS (TALO) ───────────────────────────────── */}
+        {tab === "pagos" && (
+          <div className="max-w-xl space-y-6">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+              <h2 className="mb-2 text-base font-bold">Cobros con transferencia (Talo)</h2>
+              <p className="mb-4 text-sm text-white/60">
+                Pegá las credenciales de tu cuenta Talo. Los compradores transferirán y
+                recibirán el QR por mail automáticamente.
+              </p>
+
+              <div className="mb-5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
+                <p className="font-semibold">¿Dónde las encuentro?</p>
+                <p className="mt-1 text-blue-100/90">
+                  Entrá a{" "}
+                  <a
+                    href="https://app.talo.com.ar"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    app.talo.com.ar
+                  </a>{" "}
+                  → Usuario → Credenciales
+                </p>
+              </div>
+
+              {pagosInfo === null ? (
+                <p className="text-sm text-white/40">Cargando...</p>
+              ) : (
+                <form onSubmit={handleSavePagos} className="space-y-4">
+                  <Field
+                    label="User ID"
+                    value={pagosForm.userId}
+                    onChange={(v) => setPagosForm({ ...pagosForm, userId: v })}
+                  />
+                  <Field
+                    label="Client ID"
+                    value={pagosForm.clientId}
+                    onChange={(v) => setPagosForm({ ...pagosForm, clientId: v })}
+                  />
+                  <div>
+                    <label className="mb-1 block text-sm text-white/60">Client Secret</label>
+                    <input
+                      type="password"
+                      value={pagosForm.clientSecret}
+                      onChange={(e) =>
+                        setPagosForm({ ...pagosForm, clientSecret: e.target.value })
+                      }
+                      placeholder={
+                        pagosInfo.hasSecret
+                          ? "Dejá vacío para mantener el actual"
+                          : "Pegá el Client Secret"
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm text-white/60">Ambiente</label>
+                    <select
+                      value={pagosForm.environment}
+                      onChange={(e) =>
+                        setPagosForm({
+                          ...pagosForm,
+                          environment: e.target.value as "sandbox" | "production",
+                        })
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                    >
+                      <option value="production">Producción (pagos reales)</option>
+                      <option value="sandbox">Sandbox (pruebas)</option>
+                    </select>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 px-4 py-3">
+                    <p className="mb-1 text-xs text-white/50">Webhook (automático, no hace falta copiarlo)</p>
+                    <p className="break-all font-mono text-xs text-white/70">
+                      {pagosInfo.webhookUrl}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
+                    <span className="text-sm">Estado</span>
+                    {pagosInfo.configured ? (
+                      <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
+                        Configurado
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-xs font-semibold text-yellow-300">
+                        Falta configurar
+                      </span>
+                    )}
+                  </div>
+
+                  {pagosTestOk === true && (
+                    <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-300">
+                      Conexión con Talo verificada correctamente.
+                    </div>
+                  )}
+
+                  {pagosError && (
+                    <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                      {pagosError}
+                    </p>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={pagosLoading}
+                      className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black hover:bg-white/90 disabled:opacity-50"
+                    >
+                      {pagosLoading ? "Guardando..." : "Guardar credenciales"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleTestPagos}
+                      disabled={pagosTestLoading || !pagosInfo.configured}
+                      className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold hover:bg-white/5 disabled:opacity-50"
+                    >
+                      {pagosTestLoading ? "Probando..." : "Probar conexión"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
         )}
 

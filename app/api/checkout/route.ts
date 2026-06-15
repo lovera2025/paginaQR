@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { createOrdenPendiente, getEventoActivo } from "@/lib/db";
-import { canSimulatePayment } from "@/lib/config";
-import { createCheckoutPreference } from "@/lib/mercadopago/preferences";
+import { createOrdenPendiente } from "@/lib/db";
+import { canSimulatePayment } from "@/lib/talo/credentials";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -15,7 +14,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  if (canSimulatePayment()) {
+  if (await canSimulatePayment()) {
     return NextResponse.json({
       mode: "simulate",
       ordenId: result.orden.id,
@@ -23,23 +22,13 @@ export async function POST(request: Request) {
     });
   }
 
-  const evento = await getEventoActivo();
-  if (!evento) {
-    return NextResponse.json({ error: "No hay evento activo" }, { status: 400 });
-  }
-
-  const preference = await createCheckoutPreference(result.orden, evento);
-  if ("error" in preference) {
-    return NextResponse.json({ error: preference.error }, { status: 502 });
-  }
-
   return NextResponse.json({
-    mode: "mp",
+    mode: "talo",
     ordenId: result.orden.id,
-    initPoint: preference.initPoint,
+    orden: result.orden,
   });
 }
 
 export async function GET() {
-  return NextResponse.json({ simulate: canSimulatePayment() });
+  return NextResponse.json({ simulate: await canSimulatePayment() });
 }

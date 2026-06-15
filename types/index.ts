@@ -29,7 +29,7 @@ export interface Evento {
 export interface Orden {
   id: string;
   eventoId: string;
-  mpPaymentId: string | null;
+  paymentId: string | null;
   compradorNombre: string;
   compradorEmail: string;
   cantidad: number;

@@ -60,7 +60,7 @@ export function mapOrden(row: OrdenRow): Orden {
   return {
     id: row.id,
     eventoId: row.evento_id,
-    mpPaymentId: row.mp_payment_id,
+    paymentId: row.mp_payment_id,
     compradorNombre: row.comprador_nombre,
     compradorEmail: row.comprador_email,
     cantidad: row.cantidad,

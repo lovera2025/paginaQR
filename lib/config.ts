@@ -8,15 +8,33 @@ export function isMockMode(): boolean {
   return getAppMode() === "mock";
 }
 
-export function isMercadoPagoConfigured(): boolean {
-  return Boolean(process.env.MP_ACCESS_TOKEN?.trim());
+export function getTaloUserIdFromEnv(): string {
+  return process.env.TALO_USER_ID?.trim() || "";
 }
 
-/** Demo / Fase A–B: simular pago hasta que MP esté conectado (Fase C). */
-export function canSimulatePayment(): boolean {
-  return isMockMode() || !isMercadoPagoConfigured();
+export function getTaloClientIdFromEnv(): string {
+  return process.env.TALO_CLIENT_ID?.trim() || "";
 }
 
+export function getTaloClientSecretFromEnv(): string {
+  return process.env.TALO_CLIENT_SECRET?.trim() || "";
+}
+
+export function getTaloEnvironmentFromEnv(): "sandbox" | "production" {
+  return process.env.TALO_ENVIRONMENT?.trim() === "sandbox"
+    ? "sandbox"
+    : "production";
+}
+
+export function isTaloConfiguredFromEnv(): boolean {
+  return Boolean(
+    getTaloUserIdFromEnv() &&
+      getTaloClientIdFromEnv() &&
+      getTaloClientSecretFromEnv()
+  );
+}
+
+/** Demo / local: simular pago hasta que Talo esté conectado. */
 export function getAdminPin(): string {
   return process.env.ADMIN_PIN ?? "1234";
 }
