@@ -1,7 +1,7 @@
 # PaginaQR / JR Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: 13 junio 2026 (noche) — Resend + reinicio + estados en producción. **Próximo chat: Historial → MP**
+> Última actualización: 14 junio 2026 — Historial + PINs en Supabase desplegados. **Próximo chat: Mercado Pago**
 
 ## Meta inmediata
 
@@ -42,16 +42,17 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 | Estados evento (borrador/venta/finalizado) | ✅ Abrir venta · Cerrar evento |
 | Historial eventos pasados | ✅ **Hecho — 14 jun** |
 | Crear nuevo evento (desde admin) | ✅ **Hecho — 14 jun** |
-| Botón Staff en landing | ✅ **Hecho — 14 jun** |
-| Seguridad: aviso PIN débil + guía Vercel | ✅ **Hecho — 14 jun** |
-| Mercado Pago (Checkout Pro) | ❌ **Próximo** |
+| Botón Staff en landing | ✅ Nav hero → `/admin` |
+| PINs en Supabase (`app_pins`) | ✅ Cambiar desde Admin → Seguridad |
+| Invalidar sesión al cambiar PIN | ✅ Mensaje + re-login con PIN nuevo |
+| Mercado Pago (Checkout Pro) | ❌ **Próximo chat** |
 | Reembolso vía API MP | ❌ Con MP |
-| PIN fuerte en producción | ❌ Con MP / cierre prod |
+| PIN fuerte en producción | ⚠️ Cambiar desde Seguridad (no dejar `1234`) |
 | Dominio propio | ❌ Opcional (ej. entradas.jreventos.com) |
 
-**Momento exacto:** Historial + crear evento + Staff button + Seguridad listos (14 jun). **Próximo:** Mercado Pago (Checkout Pro + webhook).
+**Momento exacto:** Compra **simulada** en prod. Mail + scanner + historial + PINs desde admin OK. **Próximo:** MP (Checkout Pro + webhook) cuando haya Access Token.
 
-**Commits recientes:** `187fd79` (reinicio + estados) · `d3cc13b` (fix contentId mail) · `c7d2ed8` (mail inline) · `73ead2c` (Resend) · `feat: historial + crear evento + Staff button + Seguridad` (14 jun)
+**Commits recientes:** `5050c7f` (PINs Supabase) · `e6ef189` (historial + Staff) · `22323c9` (docs) · `187fd79` (reinicio + estados)
 
 ---
 
@@ -67,10 +68,15 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 
 ## Auth — sin cuentas de usuario
 
-- Admin y scanner: **PIN** en variables de entorno (`ADMIN_PIN`, `SCANNER_PIN`).
-- No hay registro/login con email en la app (postergar Supabase Auth).
-- Admin puede entrar a `/scanner` sin re-PIN si ya tiene cookie admin.
-- Producción: PIN fuerte distinto para admin vs scanner; sacar `1234` de Vercel.
+- Admin y scanner: **dos PINs distintos** (admin = panel completo; scanner = solo puerta).
+- **Fuente principal:** tabla Supabase `app_pins` (texto plano, una fila `default`).
+- **Fallback:** si la tabla está vacía, usa `ADMIN_PIN` / `SCANNER_PIN` de Vercel (solo arranque).
+- **Cambiar PINs:** Admin → **Seguridad** → **Cambiar PINs** (no hace falta entrar a Vercel).
+- Al cambiar: sube `pin_revision` → sesiones viejas invalidadas → mensaje *“El PIN fue actualizado…”*.
+- Cookie de sesión: `rol:revision` · duración 12 h.
+- No hay registro/login con email (postergar Supabase Auth).
+- Admin logueado puede abrir `/scanner` sin re-PIN.
+- **Antes del evento:** cambiar PINs de prueba (`1234`) desde Seguridad.
 
 ---
 
@@ -80,10 +86,11 @@ Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 |-----|-----|
 | Landing | https://jreventos-entradas.vercel.app |
 | Comprar | /comprar |
-| Admin | /admin (PIN `1234` en demo — cambiar en prod) |
-| Scanner | /scanner (PIN `1234` en demo — cambiar en prod) |
+| Admin | /admin (PIN admin) |
+| Scanner | /scanner (PIN scanner) |
+| Staff (landing) | Botón **Staff** en nav del hero → `/admin` |
 
-**Nota UX:** link **Admin** está en el **footer** (scroll abajo), no en el hero. **Scanner** solo en header del panel admin. Atajo: `/admin` directo.
+**Nota UX:** **Staff** en nav del hero. Link Admin también en footer. **Scanner** en header del panel admin.
 
 Local: `npm run dev` → http://localhost:3000
 
@@ -126,9 +133,10 @@ Objetivo: construir en capas, probar cada pieza sin ensuciar datos reales, y no 
 | 1 | **Resend** | ✅ Mail + QR por entrada (pago simulado) |
 | 2 | **Reiniciar ventas** | ✅ Solo borrador |
 | 3 | **Estados evento** | ✅ borrador → venta → finalizado |
-| 4 | **Historial** | ❌ **Siguiente sesión (14 jun)** |
-| 5 | **Mercado Pago** | ❌ Después de Historial (Checkout Pro + webhook) |
-| 6 | **Ops prod** | ❌ PIN fuerte, reembolso MP, `APP_MODE=production` |
+| 4 | **Historial** | ✅ Pestaña + crear evento |
+| 5 | **PINs Supabase** | ✅ Cambiar desde admin · invalidar sesión |
+| 6 | **Mercado Pago** | ❌ **Próximo** (Checkout Pro + webhook) |
+| 7 | **Ops prod** | ❌ Reembolso MP, `APP_MODE=production`, demo jefe |
 
 **Decisión acordada (13 jun):** Historial **antes** que MP — MP es más sensible; conviene tener archivado/listas listas antes de plata real.
 
@@ -145,7 +153,7 @@ Reiniciar ventas → compra simulada → mail Resend → /compra/exito → scann
 - **Contadores** no se cargan a mano: se calculan de `tickets` + `ordenes`.
 - **Disponibles** = `capacidad − tickets activos (no cancelados)`.
 - Al comprar, el servidor bloquea si no hay cupo (`lib/supabase/queries.ts`).
-- **Pendiente:** filtrar stats/contadores siempre por `evento_id` del evento activo.
+- Stats/contadores filtrados por `evento_id` del evento activo ✅
 
 ### Idempotencia (evitar bugs)
 
@@ -154,12 +162,13 @@ Reiniciar ventas → compra simulada → mail Resend → /compra/exito → scann
 | Mail | Solo enviar si `email_sent_at` es null en la orden |
 | Webhook MP (futuro) | No duplicar tickets si mismo `mp_payment_id` |
 | Reiniciar | Botón disabled mientras corre; confirmación `REINICIAR` |
+| Cambiar PIN | Pedir PIN admin actual; subir `pin_revision`; invalidar cookies |
 
 ---
 
 ## Estados del evento e historial
 
-### Estados (`eventos.estado` — a implementar)
+### Estados (`eventos.estado`)
 
 | Estado | Venta | Reiniciar ventas | Uso |
 |--------|-------|------------------|-----|
@@ -214,6 +223,32 @@ Admin → pestaña **Historial** → elegir evento → ver stats + tablas.
 - **Abrir venta:** borrador → venta (bloquea Reiniciar)
 - **Cerrar evento:** venta → finalizado + `activo = false` (datos intactos en DB)
 - Lógica: `lib/evento/estado.ts`
+
+## PINs — implementado ✅ (14 jun)
+
+- Tabla: `app_pins` · migración `supabase/migrations/app_pins.sql`
+- Campos: `admin_pin`, `scanner_pin`, `pin_revision`, `updated_at`
+- Lectura: `lib/auth/pins.ts` → Supabase primero, env Vercel si no hay fila
+- Login: `POST /api/auth/pin` · sesión con revisión en cookie
+- Validación sesión: `GET /api/auth/check` · `requireAuth()` en APIs admin/scanner
+- Cambiar: `POST /api/admin/pins` · body `{ pinActual, pinAdminNuevo, pinScannerNuevo }`
+- UI: Admin → **Seguridad** → **Cambiar PINs** (sin guía Vercel)
+- Reglas: mínimo 6 caracteres · admin ≠ scanner · confirmación en formulario
+- Efecto al guardar: `clearAuthCookie()` → reload → PinGate con mensaje amarillo
+
+**Migración Supabase (una vez):**
+
+```sql
+CREATE TABLE IF NOT EXISTS app_pins (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  admin_pin TEXT NOT NULL,
+  scanner_pin TEXT NOT NULL,
+  pin_revision INT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+**Probar:** Seguridad → Cambiar PINs → re-login admin + scanner con PINs nuevos.
 
 ---
 
@@ -403,19 +438,18 @@ Ej: `Tu entrada — Fiesta de Promo · 20 jun`
 
 ---
 
-### Domingo 14 — Historial (PRIMERO) ❌
+### Domingo 14 — Historial + PINs ✅
 
-- [ ] Pestaña **Historial** en admin
-- [ ] Listar eventos `finalizado` (`activo = false`)
-- [ ] Por evento: stats (vendidas, recaudado, reembolsado, ingresaron, sin usar)
-- [ ] Lista compradores (órdenes) + detalle entradas — solo lectura
-- [ ] Probar: Cerrar evento de prueba → ver en Historial
-
-**No requiere MP.** No toca plata.
+- [x] Pestaña **Historial** + detalle compradores/entradas
+- [x] **Crear nuevo evento** (sin activo, borrador, copiar branding)
+- [x] Botón **Staff** en landing
+- [x] **PINs en Supabase** — cambiar desde Seguridad, invalidar sesión
+- [x] Migración `app_pins.sql` en Supabase
+- [x] Deploy `5050c7f` en Vercel
 
 ---
 
-### Mercado Pago (DESPUÉS de Historial — más sensible)
+### Mercado Pago (PRÓXIMO — más sensible)
 
 - [ ] Checkout Pro + webhook `/api/webhook-mp`
 - [ ] Idempotencia pago · sacar simulación con token en prod
@@ -455,8 +489,8 @@ Ej: `Tu entrada — Fiesta de Promo · 20 jun`
 
 ```
 APP_MODE=production
-ADMIN_PIN=********
-SCANNER_PIN=********
+ADMIN_PIN=********          # fallback si app_pins vacía; opcional tras migrar PINs
+SCANNER_PIN=********        # fallback si app_pins vacía
 MP_ACCESS_TOKEN=********          # test sábado → prod lunes
 RESEND_API_KEY=********
 RESEND_FROM=Entradas <...@...>
@@ -512,16 +546,15 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 
 - [x] Resend — mail flyer + QR + `email_sent_at`
 - [x] Reiniciar ventas (solo borrador) + estados evento
-- [ ] **Historial** — pestaña eventos pasados (14 jun)
-+ [x] Historial — pestaña admin · eventos finalizados · stats + compradores + entradas (solo lectura)
-+ [x] Crear nuevo evento desde admin (cuando no hay activo, en borrador)
-+ [x] Botón Staff en nav del hero → /admin
-+ [x] Sección Seguridad: aviso PIN débil, guía Vercel
+- [x] Historial — pestaña admin · eventos finalizados · stats + compradores + entradas
+- [x] Crear nuevo evento desde admin
+- [x] Botón Staff en nav del hero → /admin
+- [x] PINs en Supabase — cambiar desde Seguridad (sin Vercel)
 - [ ] Mercado Pago Checkout Pro + webhook `/api/webhook-mp`
 - [ ] Reembolso vía API MP desde admin
 - [ ] Snapshot branding al comprar
 - [ ] MP token producción + compra real de prueba
-- [ ] PIN fuerte + `APP_MODE=production`
+- [ ] Cambiar PINs de prueba en prod + `APP_MODE=production`
 
 ---
 
@@ -534,7 +567,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 - [x] Build OK
 - [x] Título pestaña → "JR Eventos"
 - [x] Variables Resend en producción
-- [ ] Variables MP + PIN fuerte
+- [ ] Variable `MP_ACCESS_TOKEN`
+- [ ] PINs fuertes guardados en Supabase (desde Seguridad)
 - [ ] Dominio propio (opcional, post-evento)
 
 ---
@@ -553,22 +587,24 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 
 ## Pendiente opcional (post Bloque 1)
 
-- [ ] Link **Admin** más visible en nav del hero (hoy solo footer)
+- [x] Link **Staff** en nav del hero → `/admin`
 - [ ] Verificar precio en DB vs flyer si no coincide en producción
 
 ---
 
-## Qué falta — resumen para próxima sesión (14 jun)
+## Qué falta — resumen para próxima sesión
 
 | Prioridad | Bloque | Tareas |
 |-----------|--------|--------|
-| 1 | **Historial** | Pestaña admin · eventos finalizados · stats + compradores + entradas (solo lectura) |
-| 2 | **MP** | Token del hijo (recuperar contraseña) · Checkout Pro · webhook · sacar simulación en prod |
-| 3 | **Ops prod** | PIN fuerte · reembolso MP · `APP_MODE=production` · demo jefe (meta lun 15) |
+| 1 | **Mercado Pago** | Access Token (hijo) · Checkout Pro · webhook `/api/webhook-mp` · sacar simulación |
+| 2 | **Ops prod** | Cambiar PINs desde Seguridad · `APP_MODE=production` · reembolso MP · demo jefe (lun 15) |
+| 3 | **Opcional** | Snapshot branding al comprar · dominio propio |
 
-**Gestión paralela:** MP Access Token (hijo) · PINs admin/scanner · migración `evento_estado.sql` si no se corrió
+**Gestión paralela:** recuperar contraseña/token MP del hijo
 
-**Ciclo prueba actual (borrador):** Reiniciar → comprar → mail → scanner → Reiniciar otra vez
+**Ciclo prueba actual (borrador):** Reiniciar → comprar simulado → mail → scanner → Reiniciar
+
+**Antes de venta real:** Abrir venta pública · MP conectado · PINs fuertes en Supabase
 
 ---
 ## Cómo probar el flujo (simulación — hasta conectar MP)
@@ -595,9 +631,9 @@ npm run update:evento    # actualizar evento demo en Supabase
 
 ## Cómo continuar en un nuevo chat
 
-1. Leer este archivo — **Estado actual**, **Historial** (spec), **Reiniciar ventas**, **Estados evento**
+1. Leer este archivo — **Estado actual**, **PINs**, **Historial**, **Reiniciar ventas**
 2. Meta: **operativo lun 15 tarde**, evento **vie 20**
-3. Usuario dirá **“implementá historial”** → pestaña admin + APIs lectura eventos `finalizado`
-4. **Después** (no antes): **“implementá Mercado Pago”** — requiere Access Token del hijo
-5. Migraciones Supabase pendientes si no se corrieron: `email_sent_at.sql`, `evento_estado.sql`
-6. Orden fijo acordado: **Historial → MP → ops prod**
+3. Usuario dirá **“implementá Mercado Pago”** — requiere `MP_ACCESS_TOKEN` del hijo
+4. Verificar: PINs cambiados en Seguridad · migración `app_pins.sql` corrida · deploy `5050c7f`+
+5. Migraciones Supabase si faltan: `email_sent_at.sql`, `evento_estado.sql`, `app_pins.sql`
+6. Orden: **MP → ops prod** (historial y PINs ya hechos)
