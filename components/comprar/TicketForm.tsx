@@ -64,7 +64,9 @@ export function TicketForm({ evento }: TicketFormProps) {
           className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none focus:border-white/30"
           placeholder="juan@email.com"
         />
-        <p className="mt-1 text-xs text-white/40">Recibirás tu QR en este email</p>
+        <p className="mt-1 text-xs text-white/40">
+          Recibirás tu QR en este email. Si no lo ves en unos minutos, revisá spam o correo no deseado.
+        </p>
       </div>
 
       <div>
