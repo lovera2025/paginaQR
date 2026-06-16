@@ -1,7 +1,7 @@
 # PaginaQR / JR Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: **15 junio 2026 (noche)** — Talo + Mercado Pago configurables desde Admin sin Vercel. Reembolsos deshabilitados (pendiente). Próximo chat: deshabilitar botón Reembolsar.
+> Última actualización: **15 junio 2026 (noche)** — Botón Reembolsar deshabilitado visualmente (opaco + aviso amarillo en Pagos). Migración SQL `app_payments_mp.sql` pendiente de correr en Supabase. Próximo: PINs fuertes + precio $8.000 + demo jefe.
 
 ## Meta inmediata
 
@@ -39,15 +39,14 @@ ALTER TABLE ordenes
     CHECK (payment_method IS NULL OR payment_method IN ('mp', 'talo'));
 ```
 
-### ❌ Pendiente próximo chat: deshabilitar Reembolsar
+### ✅ Reembolsar deshabilitado visualmente
 **Por qué:** MP retiene fondos de tarjeta hasta días después (ej. 2 jul para pago del 15 jun). No se puede reembolsar hasta que MP libere los fondos.
 
-**Diseño acordado:**
-- Botón **Reembolsar** en Admin → Compras: **deshabilitado** (opaco, no clickeable) para **ambos métodos** (MP y Talo)
-- Texto chiquito junto al botón: *"Reembolsos deshabilitados temporalmente"*
-- Aviso amarillo pequeño en Admin → Pagos: *"Los reembolsos están temporalmente deshabilitados"*
-- Solo cambios en `AdminDashboard.tsx` (no tocar backend)
-- Reactivar cuando el jefe lo pida (cambio de 2 min)
+**Implementado:**
+- Botón **Reembolsar** en Admin → Compras: **deshabilitado** (opaco, no clickeable) + texto *"Deshabilitado temporalmente"* debajo
+- Aviso amarillo en Admin → Pagos: *"Los reembolsos están temporalmente deshabilitados"*
+- Solo cambios en `AdminDashboard.tsx` (backend de refund intacto y listo)
+- Para reactivar: revertir las dos partes en `AdminDashboard.tsx` (2 min cuando jefe lo pida)
 
 ---
 

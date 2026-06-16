@@ -974,13 +974,15 @@ export function AdminDashboard() {
                     </td>
                     <td className="p-3">
                       {o.estado === "aprobado" && (
-                        <button
-                          onClick={() => handleRefund(o.id)}
-                          disabled={actionLoading === o.id}
-                          className="text-xs text-red-400 hover:underline disabled:opacity-50"
-                        >
-                          {actionLoading === o.id ? "..." : "Reembolsar"}
-                        </button>
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            disabled
+                            className="cursor-not-allowed text-xs text-red-400 opacity-40"
+                          >
+                            Reembolsar
+                          </button>
+                          <span className="text-xs text-white/30">Deshabilitado temporalmente</span>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -1334,6 +1336,10 @@ export function AdminDashboard() {
                 Configurá acá cómo cobrar. No hace falta entrar a Vercel. Activá los
                 métodos que quieras; el comprador elige al pagar.
               </p>
+            </div>
+
+            <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
+              Los reembolsos están temporalmente deshabilitados.
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
