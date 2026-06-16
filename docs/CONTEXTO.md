@@ -1,7 +1,7 @@
 # PaginaQR / JR Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: **15 junio 2026 (madrugada)** — Mercado Pago **productivo probado** (compra real + mail + QR). **Hoy tarde:** demo jefe + ops antes de abrir venta.
+> Última actualización: **15 junio 2026 (noche)** — Talo + Mercado Pago configurables desde Admin sin Vercel. Reembolsos deshabilitados (pendiente). Próximo chat: deshabilitar botón Reembolsar.
 
 ## Meta inmediata
 
@@ -10,7 +10,46 @@
 | **Sistema operativo** (venta real, mail, admin, scanner) | **Lunes 15 jun 2026 — tarde** |
 | **Evento en vivo** (Fiesta de Promo / JR Eventos) | **Viernes 20 jun 2026** |
 
-**Operativo** = subir imágenes desde admin, compra con **Mercado Pago real**, webhook → tickets/QR, **email con logo**, scanner una vez por entrada, reembolso funcional, PIN fuerte en producción (sin `1234`).
+**Operativo** = subir imágenes desde admin, compra con **Mercado Pago real** o **Talo Pay**, webhook → tickets/QR, **email con logo**, scanner una vez por entrada, PIN fuerte en producción (sin `1234`).
+
+---
+
+## Estado al 15 jun 2026 (noche) — Pagos duales implementados
+
+### ✅ Hecho en este bloque
+- **Mercado Pago + Talo Pay** ambos configurables desde **Admin → Pagos** (sin Vercel, sin redeploy)
+- El comprador **elige** el método al pagar (tarjeta MP o transferencia Talo)
+- Si solo uno está activo → va directo; ninguno → modo simulación
+- Credenciales guardadas en Supabase (`app_payments` extendido con columnas MP + toggles on/off)
+- Reembolso con Talo: marca en DB. Reembolso con MP: llama a API de MP
+- Commit: `a1254d7` — desplegado en Vercel
+
+### ⚠️ Migración SQL pendiente (correr en Supabase)
+Archivo: `supabase/migrations/app_payments_mp.sql`
+```sql
+ALTER TABLE app_payments
+  ADD COLUMN IF NOT EXISTS mp_access_token TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS mp_environment TEXT NOT NULL DEFAULT 'production'
+    CHECK (mp_environment IN ('sandbox', 'production')),
+  ADD COLUMN IF NOT EXISTS talo_enabled BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS mp_enabled BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE ordenes
+  ADD COLUMN IF NOT EXISTS payment_method TEXT
+    CHECK (payment_method IS NULL OR payment_method IN ('mp', 'talo'));
+```
+
+### ❌ Pendiente próximo chat: deshabilitar Reembolsar
+**Por qué:** MP retiene fondos de tarjeta hasta días después (ej. 2 jul para pago del 15 jun). No se puede reembolsar hasta que MP libere los fondos.
+
+**Diseño acordado:**
+- Botón **Reembolsar** en Admin → Compras: **deshabilitado** (opaco, no clickeable) para **ambos métodos** (MP y Talo)
+- Texto chiquito junto al botón: *"Reembolsos deshabilitados temporalmente"*
+- Aviso amarillo pequeño en Admin → Pagos: *"Los reembolsos están temporalmente deshabilitados"*
+- Solo cambios en `AdminDashboard.tsx` (no tocar backend)
+- Reactivar cuando el jefe lo pida (cambio de 2 min)
+
+---
 
 Entre el 16 y el 19: solo pruebas y ajustes menores — **no features grandes**.
 
