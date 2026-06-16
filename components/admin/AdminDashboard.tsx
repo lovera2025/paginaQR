@@ -296,24 +296,8 @@ export function AdminDashboard() {
     }
   }
 
-  async function handleRefund(ordenId: string) {
-    if (!confirm("¿Marcar orden como reembolsada y cancelar todas sus entradas?")) return;
-    setActionLoading(ordenId);
-    try {
-      const res = await fetch(`/api/admin/ordenes/${ordenId}/refund`, {
-        method: "POST",
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast("error", data.error ?? "No se pudo reembolsar");
-        return;
-      }
-      showToast("success", "Reembolso aplicado — entradas canceladas");
-      refresh();
-    } finally {
-      setActionLoading(null);
-    }
-  }
+  // Reembolsos deshabilitados temporalmente — reactivar handleRefund al habilitar el botón
+  // async function handleRefund(ordenId: string) { ... }
 
   async function persistEvento(updated: Evento, successMsg?: string) {
     const res = await fetch("/api/admin/evento", {
