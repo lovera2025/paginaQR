@@ -11,6 +11,12 @@ export async function getEventoActivo() {
   return shouldUseSupabase() ? supabase.getEventoActivo() : mock.getEventoActivo();
 }
 
+export async function getEventoById(eventoId: string) {
+  return shouldUseSupabase()
+    ? supabase.getEventoById(eventoId)
+    : mock.getEventoById(eventoId);
+}
+
 export async function updateEvento(data: Parameters<typeof mock.updateEvento>[0]) {
   return shouldUseSupabase() ? supabase.updateEvento(data) : mock.updateEvento(data);
 }
@@ -113,6 +119,18 @@ export async function abrirVentaEvento() {
   return shouldUseSupabase()
     ? supabase.abrirVentaEvento()
     : mock.abrirVentaEvento();
+}
+
+export async function reanudarVentasEvento() {
+  return shouldUseSupabase()
+    ? supabase.reanudarVentasEvento()
+    : mock.reanudarVentasEvento();
+}
+
+export async function pausarVentasEvento() {
+  return shouldUseSupabase()
+    ? supabase.pausarVentasEvento()
+    : mock.pausarVentasEvento();
 }
 
 export async function cerrarEventoActivo() {

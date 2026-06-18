@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
-import { abrirVentaEvento, cerrarEventoActivo } from "@/lib/db";
+import {
+  abrirVentaEvento,
+  cerrarEventoActivo,
+  pausarVentasEvento,
+  reanudarVentasEvento,
+} from "@/lib/db";
 import { requireAuth } from "@/lib/auth/cookies";
+
+const ACCIONES = ["abrir_venta", "pausar", "reanudar", "cerrar"] as const;
 
 export async function POST(request: Request) {
   if (!(await requireAuth("admin"))) {
@@ -8,14 +15,18 @@ export async function POST(request: Request) {
   }
 
   const { accion } = await request.json();
-  if (accion !== "abrir_venta" && accion !== "cerrar") {
+  if (!ACCIONES.includes(accion)) {
     return NextResponse.json({ error: "Acción inválida" }, { status: 400 });
   }
 
   const result =
     accion === "abrir_venta"
       ? await abrirVentaEvento()
-      : await cerrarEventoActivo();
+      : accion === "pausar"
+        ? await pausarVentasEvento()
+        : accion === "reanudar"
+          ? await reanudarVentasEvento()
+          : await cerrarEventoActivo();
 
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS eventos (
   capacidad INT NOT NULL,
   activo BOOLEAN DEFAULT true,
   estado TEXT NOT NULL DEFAULT 'borrador'
-    CHECK (estado IN ('borrador', 'venta', 'finalizado')),
+    CHECK (estado IN ('borrador', 'venta', 'pausado', 'finalizado')),
   logo_url TEXT DEFAULT '',
   flyer_url TEXT DEFAULT '',
   color_primario TEXT DEFAULT '#ff006e',
@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS eventos (
   contacto_instagram TEXT DEFAULT '',
   texto_footer TEXT DEFAULT '',
   organizador_nombre TEXT DEFAULT '',
+  mensaje_postergado TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

@@ -14,6 +14,8 @@ import type {
 import {
   canAbrirVenta,
   canCerrarEvento,
+  canPausarVentas,
+  canReanudarVentas,
   canResetVentas,
   EVENTO_ESTADO_LABELS,
 } from "@/lib/evento/estado";
@@ -67,6 +69,7 @@ interface HistorialDetalle {
 function estadoBadgeClass(estado: Evento["estado"]): string {
   if (estado === "borrador") return "bg-yellow-500/20 text-yellow-300";
   if (estado === "venta") return "bg-green-500/20 text-green-400";
+  if (estado === "pausado") return "bg-amber-500/20 text-amber-300";
   return "bg-white/10 text-white/50";
 }
 
@@ -357,12 +360,19 @@ export function AdminDashboard() {
     }
   }
 
-  async function handleEstadoAccion(accion: "abrir_venta" | "cerrar") {
-    const msg =
-      accion === "abrir_venta"
-        ? "¿Abrir venta pública? No vas a poder reiniciar ventas después."
-        : "¿Cerrar y archivar este evento? Los datos se guardarán en Historial.";
-    if (!confirm(msg)) return;
+  async function handleEstadoAccion(
+    accion: "abrir_venta" | "pausar" | "reanudar" | "cerrar"
+  ) {
+    const messages: Record<typeof accion, string> = {
+      abrir_venta:
+        "¿Abrir venta pública? No vas a poder reiniciar ventas después.",
+      pausar:
+        "¿Pausar ventas? Nadie podrá comprar nuevo, pero las entradas vendidas siguen válidas.",
+      reanudar: "¿Reanudar ventas? La compra pública volverá a estar habilitada.",
+      cerrar:
+        "¿Cerrar y archivar este evento? Los datos se guardarán en Historial.",
+    };
+    if (!confirm(messages[accion])) return;
 
     setActionLoading(accion);
     try {
@@ -376,17 +386,27 @@ export function AdminDashboard() {
         showToast("error", data.error ?? "No se pudo actualizar el estado");
         return;
       }
-      showToast(
-        "success",
-        accion === "abrir_venta"
-          ? "Venta abierta"
-          : "Evento cerrado y archivado en Historial"
-      );
-      // Resetear historial cargado para que se recargue
+      const successMessages: Record<typeof accion, string> = {
+        abrir_venta: "Venta abierta",
+        pausar: "Ventas pausadas",
+        reanudar: "Ventas reanudadas",
+        cerrar: "Evento cerrado y archivado en Historial",
+      };
+      showToast("success", successMessages[accion]);
       setHistorialItems(null);
       refresh();
     } finally {
       setActionLoading(null);
+    }
+  }
+
+  async function copyOrdenLink(ordenId: string) {
+    const url = `${window.location.origin}/compra/exito?orden=${ordenId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast("success", "Link de entradas copiado");
+    } catch {
+      showToast("error", "No se pudo copiar el link");
     }
   }
 
@@ -724,6 +744,26 @@ export function AdminDashboard() {
                         {actionLoading === "abrir_venta" ? "..." : "Abrir venta pública"}
                       </button>
                     )}
+                    {canPausarVentas(evento.estado) && (
+                      <button
+                        type="button"
+                        onClick={() => handleEstadoAccion("pausar")}
+                        disabled={actionLoading === "pausar"}
+                        className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
+                      >
+                        {actionLoading === "pausar" ? "..." : "Pausar ventas"}
+                      </button>
+                    )}
+                    {canReanudarVentas(evento.estado) && (
+                      <button
+                        type="button"
+                        onClick={() => handleEstadoAccion("reanudar")}
+                        disabled={actionLoading === "reanudar"}
+                        className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500 disabled:opacity-50"
+                      >
+                        {actionLoading === "reanudar" ? "..." : "Reanudar ventas"}
+                      </button>
+                    )}
                     {canCerrarEvento(evento.estado) && (
                       <button
                         type="button"
@@ -740,6 +780,12 @@ export function AdminDashboard() {
                   <p className="mt-4 text-xs text-white/40">
                     Modo prueba: podés reiniciar ventas para limpiar compras de test.
                     Al abrir venta pública, reiniciar queda bloqueado.
+                  </p>
+                )}
+                {evento.estado === "pausado" && (
+                  <p className="mt-4 text-xs text-amber-200/80">
+                    Las ventas están pausadas. Las entradas ya vendidas siguen válidas en el
+                    scanner. Usá &quot;Copiar link&quot; en Compras para reenviar QR por WhatsApp.
                   </p>
                 )}
               </div>
@@ -958,10 +1004,17 @@ export function AdminDashboard() {
                     </td>
                     <td className="p-3">
                       {o.estado === "aprobado" && (
-                        <div className="flex flex-col gap-0.5">
+                        <div className="flex flex-col gap-1">
+                          <button
+                            type="button"
+                            onClick={() => copyOrdenLink(o.id)}
+                            className="text-left text-xs text-blue-400 hover:underline"
+                          >
+                            Copiar link
+                          </button>
                           <button
                             disabled
-                            className="cursor-not-allowed text-xs text-red-400 opacity-40"
+                            className="cursor-not-allowed text-left text-xs text-red-400 opacity-40"
                           >
                             Reembolsar
                           </button>
@@ -1076,6 +1129,16 @@ export function AdminDashboard() {
             <Field label="Color primario (#hex)" value={evento.colorPrimario} onChange={(v) => setEvento({ ...evento, colorPrimario: v })} />
             <Field label="Color secundario (#hex)" value={evento.colorSecundario} onChange={(v) => setEvento({ ...evento, colorSecundario: v })} />
             <Field label="Descripción" value={evento.descripcion} onChange={(v) => setEvento({ ...evento, descripcion: v })} multiline />
+            <Field
+              label="Mensaje evento postergado"
+              value={evento.mensajePostergado ?? ""}
+              onChange={(v) => setEvento({ ...evento, mensajePostergado: v })}
+              multiline
+            />
+            <p className="-mt-2 text-xs text-white/40">
+              Se muestra en la landing y en /comprar cuando pausás ventas. Si lo dejás vacío, se
+              usa un texto por defecto.
+            </p>
             <Field label="Lugar" value={evento.lugar} onChange={(v) => setEvento({ ...evento, lugar: v })} />
             <Field label="Google Maps (URL)" value={evento.mapsUrl} onChange={(v) => setEvento({ ...evento, mapsUrl: v })} />
             <Field label="WhatsApp (54911...)" value={evento.contactoWhatsapp} onChange={(v) => setEvento({ ...evento, contactoWhatsapp: v })} />
@@ -1329,7 +1392,7 @@ export function AdminDashboard() {
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
               <h2 className="mb-2 text-base font-bold">Transferencia — Talo Pay</h2>
               <p className="mb-4 text-sm text-white/60">
-                Los compradores transfieren y reciben el QR por mail automáticamente.
+                Los compradores pagan y ven su QR en pantalla al confirmar el pago.
               </p>
 
               <div className="mb-5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">

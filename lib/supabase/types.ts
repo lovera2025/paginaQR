@@ -18,6 +18,7 @@ export interface EventoRow {
   contacto_instagram: string;
   texto_footer: string;
   organizador_nombre: string;
+  mensaje_postergado: string;
   created_at: string;
 }
 

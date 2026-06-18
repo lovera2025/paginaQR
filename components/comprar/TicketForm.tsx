@@ -65,7 +65,7 @@ export function TicketForm({ evento }: TicketFormProps) {
           placeholder="juan@email.com"
         />
         <p className="mt-1 text-xs text-white/40">
-          Recibirás tu QR en este email. Si no lo ves en unos minutos, revisá spam o correo no deseado.
+          Usamos tu email para registrar la compra. Tu QR aparecerá en pantalla al confirmar el pago.
         </p>
       </div>
 

@@ -1,7 +1,5 @@
--- Migración: estados del evento (borrador / venta / finalizado)
+-- Migración: estado pausado para frenar ventas sin cerrar el evento
 -- Ejecutar en Supabase SQL Editor
-
-ALTER TABLE eventos ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'borrador';
 
 ALTER TABLE eventos DROP CONSTRAINT IF EXISTS eventos_estado_check;
 ALTER TABLE eventos ADD CONSTRAINT eventos_estado_check

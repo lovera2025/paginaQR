@@ -1,6 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
 import { SEED_EVENTO } from "./seed";
-import { sendOrderConfirmationEmail } from "@/lib/email/send";
 import { canComprarPublico } from "@/lib/evento/estado";
 import type {
   ActivityLog,
@@ -62,6 +61,12 @@ export function getEventoActivo(): Evento | null {
   return evento.activo ? evento : null;
 }
 
+export function getEventoById(eventoId: string): Evento | null {
+  const store = getStore();
+  if (store.evento.id === eventoId) return store.evento;
+  return store.eventosPasados.find((e) => e.id === eventoId) ?? null;
+}
+
 export function updateEvento(data: Partial<Evento>): Evento {
   const store = getStore();
   const appearance = { ...data };
@@ -86,8 +91,12 @@ export function createOrdenPendiente(input: {
   const evento = store.evento;
 
   if (!evento.activo) return { error: "No hay evento activo" };
-  if (!canComprarPublico(evento.estado))
+  if (!canComprarPublico(evento.estado)) {
+    if (evento.estado === "pausado") {
+      return { error: "Las ventas están pausadas temporalmente" };
+    }
     return { error: "Las ventas están cerradas para este evento" };
+  }
   if (input.cantidad < 1 || input.cantidad > 10)
     return { error: "Cantidad inválida (1-10)" };
   if (!input.compradorNombre.trim() || !input.compradorEmail.trim())
@@ -138,17 +147,6 @@ function createTicketsForOrden(orden: Orden): Ticket[] {
   return created;
 }
 
-async function trySendConfirmationEmail(
-  orden: Orden,
-  tickets: Ticket[],
-  evento: Evento
-): Promise<Orden> {
-  const result = await sendOrderConfirmationEmail({ orden, tickets, evento });
-  if (!result.sent) return orden;
-  orden.emailSentAt = new Date().toISOString();
-  return orden;
-}
-
 export function getOrdenByPaymentId(paymentId: string): Orden | null {
   return (
     getStore().ordenes.find((o) => o.paymentId === paymentId) ?? null
@@ -178,14 +176,6 @@ export async function approveOrden(
   if (!orden) return { error: "Orden no encontrada" };
   if (orden.estado === "aprobado") {
     const existing = store.tickets.filter((t) => t.ordenId === ordenId);
-    if (existing.length > 0) {
-      const ordenWithEmail = await trySendConfirmationEmail(
-        orden,
-        existing,
-        store.evento
-      );
-      return { orden: ordenWithEmail, tickets: existing };
-    }
     return { orden, tickets: existing };
   }
   if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
@@ -206,9 +196,7 @@ export async function approveOrden(
     `Venta: ${orden.compradorNombre}, ${orden.cantidad} entrada(s), $${orden.montoTotal.toLocaleString("es-AR")}`
   );
 
-  const ordenWithEmail = await trySendConfirmationEmail(orden, tickets, store.evento);
-
-  return { orden: ordenWithEmail, tickets };
+  return { orden, tickets };
 }
 
 export function rejectOrden(ordenId: string): { orden: Orden } | { error: string } {
@@ -399,11 +387,31 @@ export function abrirVentaEvento(): { evento: Evento } | { error: string } {
   return { evento: store.evento };
 }
 
-export function cerrarEventoActivo(): { evento: Evento } | { error: string } {
+export function pausarVentasEvento(): { evento: Evento } | { error: string } {
   const store = getStore();
   if (!store.evento.activo) return { error: "No hay evento activo" };
   if (store.evento.estado !== "venta") {
-    return { error: "Solo se puede cerrar un evento en venta" };
+    return { error: "Solo se pueden pausar ventas con el evento en venta" };
+  }
+  store.evento.estado = "pausado";
+  return { evento: store.evento };
+}
+
+export function reanudarVentasEvento(): { evento: Evento } | { error: string } {
+  const store = getStore();
+  if (!store.evento.activo) return { error: "No hay evento activo" };
+  if (store.evento.estado !== "pausado") {
+    return { error: "Solo se pueden reanudar ventas desde pausado" };
+  }
+  store.evento.estado = "venta";
+  return { evento: store.evento };
+}
+
+export function cerrarEventoActivo(): { evento: Evento } | { error: string } {
+  const store = getStore();
+  if (!store.evento.activo) return { error: "No hay evento activo" };
+  if (store.evento.estado !== "venta" && store.evento.estado !== "pausado") {
+    return { error: "Solo se puede cerrar un evento en venta o pausado" };
   }
 
   for (const orden of store.ordenes) {
@@ -504,6 +512,7 @@ export function crearNuevoEvento(
     contactoInstagram: input.copiarBranding && anterior ? anterior.contactoInstagram : "",
     textoFooter: input.copiarBranding && anterior ? anterior.textoFooter : "",
     organizadorNombre: input.copiarBranding && anterior ? anterior.organizadorNombre : "",
+    mensajePostergado: input.copiarBranding && anterior ? anterior.mensajePostergado : "",
   };
 
   store.evento = nuevoEvento;

@@ -22,4 +22,5 @@ export const SEED_EVENTO: Evento = {
   textoFooter:
     "Consultas por WhatsApp o redes. Política de reembolsos: contactá al organizador.",
   organizadorNombre: "Promo 2026",
+  mensajePostergado: "",
 };

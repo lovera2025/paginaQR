@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { TicketQrPanel } from "@/components/comprar/TicketQrPanel";
 import type { Orden } from "@/types";
 
 function ExitoContent() {
@@ -82,7 +83,9 @@ function ExitoContent() {
       }
 
       if (!cancelled) {
-        setError("Estamos confirmando tu pago. Revisá tu mail en unos minutos.");
+        setError(
+          "Estamos confirmando tu pago. Volvé a esta página en unos minutos con el mismo link."
+        );
         setLoading(false);
       }
     }
@@ -131,35 +134,23 @@ function ExitoContent() {
   }
 
   return (
-    <div className="mx-auto max-w-lg text-center">
-      <div className="mb-6 text-5xl">✅</div>
-      <h1 className="mb-2 text-3xl font-black">¡Compra confirmada!</h1>
+    <div className="mx-auto max-w-lg">
+      <div className="mb-6 text-center text-5xl">✅</div>
+      <h1 className="mb-2 text-center text-3xl font-black">¡Compra confirmada!</h1>
+      <p className="mb-8 text-center text-white/60">
+        Presentá cada QR en la entrada el día del evento.
+      </p>
 
-      <div className="mb-8 rounded-2xl border border-white/10 bg-white/5 p-6 text-left">
-        <p className="mb-3 text-lg font-semibold text-white">
-          Tu QR de ingreso fue enviado por mail
-        </p>
-        <p className="text-white/70">
-          Revisá la bandeja de{" "}
-          <strong className="text-white">{orden.compradorEmail}</strong>
-          {orden.cantidad > 1
-            ? ` — ${orden.cantidad} entradas, un QR por cada una.`
-            : "."}
-        </p>
-        <p className="mt-4 text-sm text-white/50">
-          Si no lo ves en unos minutos, revisá spam o correo no deseado.
-        </p>
-        <p className="mt-4 text-sm font-medium text-white/80">
-          Presentá el QR del mail en la entrada el día del evento.
-        </p>
+      <TicketQrPanel orden={orden} />
+
+      <div className="mt-8 text-center">
+        <Link
+          href="/"
+          className="inline-block rounded-xl bg-white px-6 py-3 font-semibold text-black"
+        >
+          Volver al evento
+        </Link>
       </div>
-
-      <Link
-        href="/"
-        className="inline-block rounded-xl bg-white px-6 py-3 font-semibold text-black"
-      >
-        Volver al evento
-      </Link>
     </div>
   );
 }

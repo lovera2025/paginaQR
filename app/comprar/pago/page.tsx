@@ -276,7 +276,7 @@ function PagoContent() {
       <div className="mx-auto max-w-lg">
         <h1 className="mb-2 text-center text-2xl font-bold">¿Cómo querés pagar?</h1>
         <p className="mb-8 text-center text-white/60">
-          Elegí el método que prefieras. En ambos casos recibirás tu QR por mail.
+          Elegí el método que prefieras. Al confirmar el pago verás tu QR en pantalla.
         </p>
 
         {error && (
@@ -349,7 +349,7 @@ function PagoContent() {
       <h1 className="mb-2 text-center text-2xl font-bold">Transferí para confirmar</h1>
       <p className="mb-8 text-center text-white/60">
         Enviá el monto exacto desde tu banco o billetera. Cuando Talo detecte el pago,
-        te enviamos el QR al mail.
+        verás tu QR en pantalla.
       </p>
 
       <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-6">
@@ -393,7 +393,8 @@ function PagoContent() {
         <p className="font-semibold">Importante</p>
         <ul className="mt-2 list-inside list-disc space-y-1 text-blue-100/90">
           <li>Transferí el monto exacto: {formatPrecio(payment.amount)}</li>
-          <li>Tu QR llegará a <strong>{payment.compradorEmail}</strong></li>
+          <li>Al confirmarse, tu QR aparecerá en pantalla</li>
+          <li>Compra registrada a nombre de <strong>{payment.compradorEmail}</strong></li>
           <li>No cierres esta pantalla hasta que confirmemos el pago</li>
         </ul>
       </div>

@@ -1,6 +1,6 @@
 export type OrdenEstado = "pendiente" | "aprobado" | "rechazado" | "reembolsado";
 
-export type EventoEstado = "borrador" | "venta" | "finalizado";
+export type EventoEstado = "borrador" | "venta" | "pausado" | "finalizado";
 
 export type ActivityTipo = "venta" | "ingreso" | "baja" | "reembolso";
 
@@ -24,6 +24,7 @@ export interface Evento {
   contactoInstagram: string;
   textoFooter: string;
   organizadorNombre: string;
+  mensajePostergado: string;
 }
 
 export type PaymentMethod = "mp" | "talo";

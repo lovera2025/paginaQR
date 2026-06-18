@@ -27,6 +27,7 @@ export function mapEvento(row: EventoRow): Evento {
     contactoInstagram: row.contacto_instagram,
     textoFooter: row.texto_footer,
     organizadorNombre: row.organizador_nombre,
+    mensajePostergado: row.mensaje_postergado ?? "",
   };
 }
 
@@ -53,6 +54,7 @@ export function mapEventoToRow(
   if (evento.contactoInstagram !== undefined) row.contacto_instagram = evento.contactoInstagram;
   if (evento.textoFooter !== undefined) row.texto_footer = evento.textoFooter;
   if (evento.organizadorNombre !== undefined) row.organizador_nombre = evento.organizadorNombre;
+  if (evento.mensajePostergado !== undefined) row.mensaje_postergado = evento.mensajePostergado;
   return row;
 }
 

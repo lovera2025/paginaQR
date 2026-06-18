@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getOrden, getTicketsByOrden } from "@/lib/db";
+import { getEventoById, getOrden, getTicketsByOrden } from "@/lib/db";
 
 export async function GET(
   _request: Request,
@@ -14,6 +14,11 @@ export async function GET(
   }
 
   const tickets = (await getTicketsByOrden(params.id)).filter((t) => !t.cancelado);
+  const evento = await getEventoById(orden.eventoId);
 
-  return NextResponse.json({ tickets, orden });
+  if (!evento) {
+    return NextResponse.json({ error: "Evento no encontrado" }, { status: 404 });
+  }
+
+  return NextResponse.json({ tickets, orden, evento });
 }

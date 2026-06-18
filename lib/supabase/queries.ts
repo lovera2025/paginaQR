@@ -6,7 +6,6 @@ import {
   mapOrden,
   mapTicket,
 } from "./mappers";
-import { sendOrderConfirmationEmail } from "@/lib/email/send";
 import { canComprarPublico } from "@/lib/evento/estado";
 import type {
   ActivityLog,
@@ -30,26 +29,6 @@ async function logActivity(tipo: ActivityLog["tipo"], mensaje: string) {
   await db().from("activity_log").insert({ tipo, mensaje });
 }
 
-async function trySendConfirmationEmail(
-  ordenId: string,
-  orden: Orden,
-  tickets: Ticket[],
-  evento: Evento
-): Promise<Orden> {
-  const result = await sendOrderConfirmationEmail({ orden, tickets, evento });
-  if (!result.sent) return orden;
-
-  const { data } = await db()
-    .from("ordenes")
-    .update({ email_sent_at: new Date().toISOString() })
-    .eq("id", ordenId)
-    .is("email_sent_at", null)
-    .select()
-    .maybeSingle();
-
-  return data ? mapOrden(data) : { ...orden, emailSentAt: new Date().toISOString() };
-}
-
 async function countTicketsActivos(eventoId: string): Promise<number> {
   const { count } = await db()
     .from("tickets")
@@ -65,6 +44,16 @@ export async function getEventoActivo(): Promise<Evento | null> {
     .select("*")
     .eq("activo", true)
     .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return mapEvento(data);
+}
+
+export async function getEventoById(eventoId: string): Promise<Evento | null> {
+  const { data, error } = await db()
+    .from("eventos")
+    .select("*")
+    .eq("id", eventoId)
     .maybeSingle();
   if (error || !data) return null;
   return mapEvento(data);
@@ -97,8 +86,12 @@ export async function createOrdenPendiente(input: {
 }): Promise<{ orden: Orden } | { error: string }> {
   const evento = await getEventoActivo();
   if (!evento) return { error: "No hay evento activo" };
-  if (!canComprarPublico(evento.estado))
+  if (!canComprarPublico(evento.estado)) {
+    if (evento.estado === "pausado") {
+      return { error: "Las ventas están pausadas temporalmente" };
+    }
     return { error: "Las ventas están cerradas para este evento" };
+  }
   if (input.cantidad < 1 || input.cantidad > 10)
     return { error: "Cantidad inválida (1-10)" };
   if (!input.compradorNombre.trim() || !input.compradorEmail.trim())
@@ -170,16 +163,6 @@ export async function approveOrden(
 
   if (orden.estado === "aprobado") {
     const existing = await getTicketsByOrden(ordenId);
-    const evento = await getEventoActivo();
-    if (evento && existing.length > 0) {
-      const ordenWithEmail = await trySendConfirmationEmail(
-        ordenId,
-        orden,
-        existing,
-        evento
-      );
-      return { orden: ordenWithEmail, tickets: existing };
-    }
     return { orden, tickets: existing };
   }
   if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
@@ -233,14 +216,7 @@ export async function approveOrden(
     `Venta: ${orden.compradorNombre}, ${orden.cantidad} entrada(s), $${orden.montoTotal.toLocaleString("es-AR")}`
   );
 
-  const ordenWithEmail = await trySendConfirmationEmail(
-    ordenId,
-    updatedOrden,
-    tickets,
-    evento
-  );
-
-  return { orden: ordenWithEmail, tickets };
+  return { orden: updatedOrden, tickets };
 }
 
 export async function rejectOrden(
@@ -522,13 +498,55 @@ export async function abrirVentaEvento(): Promise<
   return { evento: mapEvento(data) };
 }
 
-export async function cerrarEventoActivo(): Promise<
+export async function pausarVentasEvento(): Promise<
   { evento: Evento } | { error: string }
 > {
   const evento = await getEventoActivo();
   if (!evento) return { error: "No hay evento activo" };
   if (evento.estado !== "venta") {
-    return { error: "Solo se puede cerrar un evento en venta" };
+    return { error: "Solo se pueden pausar ventas con el evento en venta" };
+  }
+
+  const { data, error } = await db()
+    .from("eventos")
+    .update({ estado: "pausado" })
+    .eq("id", evento.id)
+    .eq("estado", "venta")
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+  return { evento: mapEvento(data) };
+}
+
+export async function reanudarVentasEvento(): Promise<
+  { evento: Evento } | { error: string }
+> {
+  const evento = await getEventoActivo();
+  if (!evento) return { error: "No hay evento activo" };
+  if (evento.estado !== "pausado") {
+    return { error: "Solo se pueden reanudar ventas desde pausado" };
+  }
+
+  const { data, error } = await db()
+    .from("eventos")
+    .update({ estado: "venta" })
+    .eq("id", evento.id)
+    .eq("estado", "pausado")
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+  return { evento: mapEvento(data) };
+}
+
+export async function cerrarEventoActivo(): Promise<
+  { evento: Evento } | { error: string }
+> {
+  const evento = await getEventoActivo();
+  if (!evento) return { error: "No hay evento activo" };
+  if (evento.estado !== "venta" && evento.estado !== "pausado") {
+    return { error: "Solo se puede cerrar un evento en venta o pausado" };
   }
 
   await db()
@@ -541,7 +559,7 @@ export async function cerrarEventoActivo(): Promise<
     .from("eventos")
     .update({ estado: "finalizado", activo: false })
     .eq("id", evento.id)
-    .eq("estado", "venta")
+    .in("estado", ["venta", "pausado"])
     .select()
     .single();
 
@@ -649,6 +667,7 @@ export async function crearNuevoEvento(
         contacto_instagram: anterior.contacto_instagram ?? "",
         texto_footer: anterior.texto_footer ?? "",
         organizador_nombre: anterior.organizador_nombre ?? "",
+        mensaje_postergado: anterior.mensaje_postergado ?? "",
       };
     }
   }
@@ -677,6 +696,7 @@ export async function crearNuevoEvento(
       contacto_instagram: branding.contacto_instagram ?? "",
       texto_footer: branding.texto_footer ?? "",
       organizador_nombre: branding.organizador_nombre ?? "",
+      mensaje_postergado: branding.mensaje_postergado ?? "",
     })
     .select()
     .single();
