@@ -13,7 +13,9 @@ export async function GET(
     return NextResponse.json({ error: "Pago no confirmado" }, { status: 400 });
   }
 
-  const tickets = (await getTicketsByOrden(params.id)).filter((t) => !t.cancelado);
+  const tickets = (await getTicketsByOrden(params.id)).sort(
+    (a, b) => a.numeroEntrada - b.numeroEntrada
+  );
   const evento = await getEventoById(orden.eventoId);
 
   if (!evento) {

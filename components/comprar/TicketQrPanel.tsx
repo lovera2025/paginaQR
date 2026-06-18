@@ -125,6 +125,27 @@ function TicketValidityText({
   );
 }
 
+function TicketCancelledMessage({
+  ticket,
+  compradorNombre,
+}: {
+  ticket: Ticket;
+  compradorNombre: string;
+}) {
+  return (
+    <div className="space-y-2 py-6 text-center">
+      <p className="font-semibold text-red-400">
+        La entrada {ticket.numeroEntrada} de {ticket.totalEntradas} a nombre de{" "}
+        <strong className="text-red-300">{compradorNombre}</strong> fue cancelada.
+      </p>
+      {ticket.motivoCancelacion && (
+        <p className="text-sm text-white/50">{ticket.motivoCancelacion}</p>
+      )}
+      <p className="text-sm text-white/40">Este QR ya no es válido para ingresar.</p>
+    </div>
+  );
+}
+
 function TicketEntry({
   ticket,
   compradorNombre,
@@ -142,19 +163,23 @@ function TicketEntry({
   const cancelled = ticket.cancelado;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+    <div
+      className={`overflow-hidden rounded-2xl border bg-white/5 ${
+        cancelled ? "border-red-500/30" : "border-white/10"
+      }`}
+    >
       <button
         type="button"
         onClick={onToggle}
         className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
       >
         <div>
-          <p className="font-semibold text-white">
+          <p className={`font-semibold ${cancelled ? "text-red-300" : "text-white"}`}>
             Entrada {ticket.numeroEntrada} de {ticket.totalEntradas}
           </p>
           <p className="text-sm text-white/50">
             {cancelled
-              ? "Cancelada"
+              ? "Cancelada — no válida en puerta"
               : used
                 ? "Ya ingresó"
                 : "Lista para usar en puerta"}
@@ -166,7 +191,7 @@ function TicketEntry({
       {expanded && (
         <div className="border-t border-white/10 px-4 pb-5 pt-2 text-center">
           {cancelled ? (
-            <p className="py-8 text-red-400">Esta entrada fue cancelada.</p>
+            <TicketCancelledMessage ticket={ticket} compradorNombre={compradorNombre} />
           ) : used ? (
             <p className="py-8 text-yellow-300">
               Esta entrada ya fue escaneada en la puerta.
@@ -207,10 +232,17 @@ export function TicketQrPanel({ orden }: TicketQrPanelProps) {
         return;
       }
 
-      const loaded = (data.tickets ?? []) as Ticket[];
+      const loaded = ((data.tickets ?? []) as Ticket[]).sort(
+        (a, b) => a.numeroEntrada - b.numeroEntrada
+      );
       setTickets(loaded);
       setEvento(data.evento ?? null);
-      setExpandedId(loaded[0]?.id ?? null);
+      setExpandedId(
+        loaded.find((t) => !t.cancelado && !t.usado)?.id ??
+          loaded.find((t) => !t.cancelado)?.id ??
+          loaded[0]?.id ??
+          null
+      );
       setLoading(false);
     }
 
@@ -245,6 +277,8 @@ export function TicketQrPanel({ orden }: TicketQrPanelProps) {
   }
 
   const multiple = tickets.length > 1;
+  const canceladas = tickets.filter((t) => t.cancelado).length;
+  const activas = tickets.length - canceladas;
   const wa = whatsappHref(evento.contactoWhatsapp);
 
   return (
@@ -260,9 +294,15 @@ export function TicketQrPanel({ orden }: TicketQrPanelProps) {
           </strong>
           .
         </p>
-        {multiple && (
+        {canceladas > 0 && (
+          <p className="mt-2 text-sm text-white/60">
+            {activas} activa{activas !== 1 ? "s" : ""} · {canceladas} cancelada
+            {canceladas !== 1 ? "s" : ""}
+          </p>
+        )}
+        {multiple && activas > 0 && (
           <p className="mt-2 text-sm text-white/50">
-            Abrí cada entrada para ver su QR.
+            Abrí cada entrada activa para ver su QR.
           </p>
         )}
       </div>
@@ -287,7 +327,7 @@ export function TicketQrPanel({ orden }: TicketQrPanelProps) {
       ) : (
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center">
           {tickets[0].cancelado ? (
-            <p className="text-red-400">Esta entrada fue cancelada.</p>
+            <TicketCancelledMessage ticket={tickets[0]} compradorNombre={orden.compradorNombre} />
           ) : tickets[0].usado ? (
             <p className="text-yellow-300">Esta entrada ya fue escaneada en la puerta.</p>
           ) : (
@@ -305,9 +345,11 @@ export function TicketQrPanel({ orden }: TicketQrPanelProps) {
         </div>
       )}
 
-      <p className="text-center text-sm text-white/50">
-        Guardá esta pantalla o sacá captura de cada QR antes del evento.
-      </p>
+      {activas > 0 && (
+        <p className="text-center text-sm text-white/50">
+          Guardá esta pantalla o sacá captura de cada QR activo antes del evento.
+        </p>
+      )}
 
       {evento.textoFooter && (
         <p className="text-center text-xs text-white/40">{evento.textoFooter}</p>
