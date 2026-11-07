@@ -1,13 +1,9 @@
 import { PinGate } from "@/components/auth/PinGate";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
-export const metadata = {
-  title: "Admin — JR Eventos",
-};
-
 export default function AdminPage() {
   return (
-    <PinGate role="admin" title="Panel de administración">
+    <PinGate role="admin">
       <AdminDashboard />
     </PinGate>
   );

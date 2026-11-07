@@ -1,5 +1,9 @@
 # Conectar Supabase — paginaqr-eventos
 
+> **Rediseño multi-fiesta (nov 2026):** si el proyecto ya estaba andando, corré en SQL Editor
+> `supabase/migrations/multi_evento.sql` y después `supabase/seeds/recepciones_2026.sql`
+> **antes** de desplegar el código nuevo. Las 9 fiestas quedan en borrador para revisar precios.
+
 > Si **solo creaste el proyecto** en Supabase, seguí estos 3 pasos en orden.
 
 ## Paso 1 — Ejecutar el schema (obligatorio)

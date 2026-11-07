@@ -1,9 +1,62 @@
-# PaginaQR / JR Eventos — Contexto del proyecto
+# PaginaQR / Junior Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: **15 junio 2026 (noche)** — Botón Reembolsar deshabilitado visualmente (opaco + aviso amarillo en Pagos). Migración SQL `app_payments_mp.sql` pendiente de correr en Supabase. Próximo: PINs fuertes + precio $8.000 + demo jefe.
+> Última actualización: **7 noviembre 2026** — Rediseño completo a **tienda multi-fiesta** (9 recepciones Promo 2026) con tipos de entrada **Anticipada / General / VIP**, entrada en **PDF**, acceso **/staff** con un PIN y app instalable. Código en la rama `rediseno-recepciones` (sin push, sin deploy). Próximo: correr la migración en Supabase y probar pagos reales en sandbox.
 
-## Meta inmediata
+## Estado actual (7 nov 2026)
+
+### Hecho en esta sesión
+- **Varias fiestas a la vez.** Ya no existe "el evento activo": la portada muestra todas las fiestas en `venta` o `pausado`. Cada una tiene su página `/fiesta/<slug>` con flyer, cuenta regresiva, selector de entradas y compra.
+- **Tipos de entrada por fiesta** (tabla `tipos_entrada`): nombre, precio, cupo, venta desde/hasta, diseño (`anticipada`, `general`, `vip`, `custom`), beneficios, activo, orden. Se editan en **Admin → Entradas y precios**, con vista previa en vivo.
+  - El precio se **congela en la compra** (`ordenes.precio_unitario`); cambiarlo después no toca lo vendido.
+  - Al aprobar el pago se revalida cupo del tipo **y** aforo de la fiesta.
+  - Cada entrada guarda `tipo_nombre` y `estilo` (si renombrás o borrás el tipo, lo emitido no cambia). Un tipo con ventas no se borra: se desactiva.
+- **Entrada digital** con 3 diseños (Anticipada con cinta naranja, General con color de la fiesta, VIP negro y dorado). Mismo diseño en pantalla (`components/entradas/EntradaCard.tsx`), PDF (`lib/pdf/ticket.ts`, pdf-lib, A6) y mail. Colores en `lib/entradas/estilos.ts`.
+- **Solo se libera con pago confirmado**: `/api/ordenes/[id]/tickets` y los PDF devuelven 409 si la orden no está `aprobado`.
+- **Descargas**: `/api/ordenes/[id]/pdf` (todas) y `/api/entradas/[ticketId]/pdf` (una). Botones en la pantalla de éxito y en el mail.
+- **Mail reactivado** (`lib/email/notify.ts`): se manda una sola vez al aprobar (reserva con `email_sent_at`). Si falla, la compra igual se ve en pantalla.
+- **Puerta**: `verifyTicket(ticketId, eventoId)` con avisos por color en el scanner: verde válido (badge VIP dorado), amarillo "ya ingresó HH:MM", rojo cancelada, naranja "es de otra fiesta" (no gasta la entrada), gris "QR no reconocido". Sonido y vibración. El scanner elige la fiesta arriba (se recuerda en el teléfono).
+- **Staff sin escribir URLs**: `/staff` con teclado de PIN. El PIN decide el rol (admin → Panel + Scanner; scanner → solo Scanner). `/admin` y `/scanner` sin sesión redirigen a `/staff`. Candado discreto en el footer. PWA "JE Staff" (`public/manifest.json`, íconos generados con `node scripts/make-icons.mjs`).
+- **Admin**: selector de fiesta arriba, botón "+ Nueva fiesta" (crea en borrador con un tipo General), pestañas nuevas **Entradas y precios**, **Marca** (nombre, logo, contacto globales) y en Resumen **Ventas de todas las fiestas** (vendidas/aforo, desglose por tipo, recaudado, ingresaron). Compras y Emitidas muestran el tipo; Emitidas filtra por tipo.
+- **Diseño**: negro + dorado, Montserrat + Inter + Great Vibes, partículas, marquee de fechas, tarjetas con tilt (framer-motion). Mockups en Claude Design: https://claude.ai/artifact/JTqQ3y25KbpoxKcrFW9QR8
+- **Datos**: los 9 flyers están en `public/flyers/<slug>.png` (copia en `imagen/flyers/`). En modo local (mock) se cargan solas las 9 fiestas con Anticipada $15.000 (cupo 150, hasta 7 días antes), General $18.000 y VIP $35.000 (cupo 40). **Precios, hora (22:00) y aforo (400) son de ejemplo.**
+
+### Probado (modo local, navegador integrado)
+- Compra 3 × VIP → con pago pendiente las entradas y el PDF dan 409 → simular pago → aparecen las 3 con QR y diseño VIP.
+- PDF de VIP, Anticipada y General renderizado y revisado (3 diseños distintos).
+- Puerta por API: válida → ya usada (con hora) → otra fiesta (no la gasta) → QR inválido.
+- Anticipada cerrada → checkout rechazado. VIP con cupo 1 → segunda compra rechazada. Borrar tipo con ventas → bloqueado. Cambiar precio VIP → lo recaudado no cambia.
+- Login `/staff` → redirige a `/admin`. Sin scroll horizontal en 375 px.
+- `npm run build` y `npm run lint` sin errores.
+- **No probado**: cámara del scanner (el navegador integrado no tiene cámara), Mercado Pago/Talo reales, Supabase real, envío real de mails.
+
+## Pendiente para retomar
+
+1. **Supabase (obligatorio antes de desplegar):** en SQL Editor correr `supabase/migrations/multi_evento.sql` y después `supabase/seeds/recepciones_2026.sql` (carga las 9 fiestas en borrador). Si se despliega sin la migración, la web en producción se rompe.
+2. **Datos reales del jefe:** precios de cada tipo, hora de inicio, aforo por predio, fecha de cierre de anticipadas, WhatsApp de contacto, logo (opcional). Todo se carga desde el admin.
+3. **Pruebas en sandbox** con Supabase + credenciales de prueba de Mercado Pago (Admin → Pagos, ambiente "Prueba"): comprar 5 VIP con tarjeta de prueba, confirmar que antes del webhook no hay entradas, que después hay 5 QR + PDF de 5 páginas + mail, escanear cada una (válida una vez, amarilla la segunda) y una tarjeta rechazada (aviso rojo, sin entradas). Repetir una compra por Talo.
+4. **Mail real:** Resend con `onboarding@resend.dev` solo entrega al dueño de la cuenta. Para mandar a compradores hay que verificar un dominio en Resend y poner `RESEND_FROM` con ese dominio.
+5. **Deploy:** mergear `rediseno-recepciones` a `main` recién después del paso 1 (Vercel despliega solo al pushear `main`).
+6. **Próximo plan — Reembolsos:** rediseñar reembolsos para multi-fiesta y tipos (hoy el botón sigue deshabilitado). Ideas: reembolso parcial por entrada, motivo obligatorio, aviso por mail al comprador, que devuelva el cupo al tipo, y registro en Historial. Ver retención de fondos de Mercado Pago antes de habilitar.
+7. **Próximo plan — Otros:** ingreso manual en el scanner si falla la cámara (buscar por nombre), exportar ventas a Excel, compra mixta (VIP + General en una sola compra).
+
+### Archivos clave del rediseño
+| Tema | Archivos |
+|------|----------|
+| Reglas de tipos y disponibilidad | `lib/entradas/tipos.ts` |
+| Diseños de entrada | `lib/entradas/estilos.ts`, `components/entradas/EntradaCard.tsx`, `lib/pdf/ticket.ts` |
+| Datos (mock / Supabase) | `lib/db/index.ts`, `lib/mock/db.ts`, `lib/mock/seed.ts`, `lib/supabase/queries.ts` |
+| Público | `app/page.tsx`, `app/fiesta/[slug]/page.tsx`, `components/publico/*` |
+| Pago y éxito | `app/comprar/pago/page.tsx`, `app/compra/exito/page.tsx`, `components/comprar/TicketQrPanel.tsx` |
+| Staff | `app/staff/page.tsx`, `components/auth/PinGate.tsx`, `components/scanner/QRScanner.tsx` |
+| Admin | `components/admin/AdminDashboard.tsx`, `TiposEntradaPanel.tsx`, `BrandingForm.tsx`, `VentasGenerales.tsx` |
+| SQL | `supabase/migrations/multi_evento.sql`, `supabase/seeds/recepciones_2026.sql` |
+
+---
+
+# Historial anterior (junio 2026)
+
+## Meta de junio
 
 | Hito | Fecha |
 |------|-------|

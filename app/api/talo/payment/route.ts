@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getEventoActivo, getOrden, setOrdenPaymentId } from "@/lib/db";
+import { getEventoById, getOrden, setOrdenPaymentId } from "@/lib/db";
 import { createTaloPaymentForOrden } from "@/lib/talo/payments";
 
 import { isPaymentMethodAvailable } from "@/lib/payments/methods";
@@ -22,9 +22,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Esta orden ya fue procesada" }, { status: 400 });
   }
 
-  const evento = await getEventoActivo();
+  const evento = await getEventoById(orden.eventoId);
   if (!evento) {
-    return NextResponse.json({ error: "No hay evento activo" }, { status: 400 });
+    return NextResponse.json({ error: "Fiesta no encontrada" }, { status: 400 });
   }
 
   const payment = await createTaloPaymentForOrden(orden, evento);

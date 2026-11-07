@@ -1,11 +1,14 @@
--- PaginaQR — Schema Supabase (Fase B)
+-- PaginaQR — Schema Supabase (multi-fiesta + tipos de entrada)
 -- Ejecutar en SQL Editor del proyecto Supabase nuevo
 
 -- ─── Tablas ───────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS eventos (
   id TEXT PRIMARY KEY,
+  slug TEXT UNIQUE,
   nombre TEXT NOT NULL,
+  subtitulo TEXT NOT NULL DEFAULT '',
+  dj TEXT NOT NULL DEFAULT '',
   fecha TIMESTAMPTZ NOT NULL,
   precio NUMERIC(10,2) NOT NULL,
   capacidad INT NOT NULL,
@@ -28,9 +31,30 @@ CREATE TABLE IF NOT EXISTS eventos (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS tipos_entrada (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  evento_id TEXT NOT NULL REFERENCES eventos(id) ON DELETE CASCADE,
+  nombre TEXT NOT NULL,
+  descripcion TEXT NOT NULL DEFAULT '',
+  beneficios TEXT[] NOT NULL DEFAULT '{}',
+  precio NUMERIC(10,2) NOT NULL CHECK (precio > 0),
+  cupo INT CHECK (cupo IS NULL OR cupo > 0),
+  venta_desde TIMESTAMPTZ,
+  venta_hasta TIMESTAMPTZ,
+  estilo TEXT NOT NULL DEFAULT 'general'
+    CHECK (estilo IN ('anticipada', 'general', 'vip', 'custom')),
+  color_acento TEXT NOT NULL DEFAULT '',
+  activo BOOLEAN NOT NULL DEFAULT true,
+  orden INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS ordenes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   evento_id TEXT NOT NULL REFERENCES eventos(id),
+  tipo_entrada_id UUID REFERENCES tipos_entrada(id) ON DELETE SET NULL,
+  tipo_nombre TEXT NOT NULL DEFAULT 'General',
+  precio_unitario NUMERIC(10,2),
   mp_payment_id TEXT UNIQUE,
   payment_method TEXT CHECK (payment_method IS NULL OR payment_method IN ('mp', 'talo')),
   comprador_nombre TEXT NOT NULL,
@@ -47,6 +71,9 @@ CREATE TABLE IF NOT EXISTS tickets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   orden_id UUID NOT NULL REFERENCES ordenes(id) ON DELETE CASCADE,
   evento_id TEXT NOT NULL REFERENCES eventos(id),
+  tipo_entrada_id UUID REFERENCES tipos_entrada(id) ON DELETE SET NULL,
+  tipo_nombre TEXT NOT NULL DEFAULT 'General',
+  estilo TEXT NOT NULL DEFAULT 'general',
   comprador_nombre TEXT NOT NULL,
   comprador_email TEXT NOT NULL,
   numero_entrada INT NOT NULL,
@@ -89,7 +116,25 @@ CREATE TABLE IF NOT EXISTS app_payments (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS app_branding (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  nombre TEXT NOT NULL DEFAULT 'Junior Eventos',
+  logo_url TEXT NOT NULL DEFAULT '',
+  tagline TEXT NOT NULL DEFAULT 'Recepciones de egresados · Promo 2026',
+  contacto_whatsapp TEXT NOT NULL DEFAULT '',
+  contacto_instagram TEXT NOT NULL DEFAULT 'junior_eventos_ok',
+  contacto_email TEXT NOT NULL DEFAULT '',
+  texto_footer TEXT NOT NULL DEFAULT 'Entradas personales con QR. Cada QR vale una sola vez.',
+  color_primario TEXT NOT NULL DEFAULT '#d4a853',
+  color_secundario TEXT NOT NULL DEFAULT '#050508',
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- ─── Índices ──────────────────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_tipos_evento ON tipos_entrada(evento_id);
+CREATE INDEX IF NOT EXISTS idx_ordenes_tipo ON ordenes(tipo_entrada_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_tipo ON tickets(tipo_entrada_id);
+CREATE INDEX IF NOT EXISTS idx_eventos_estado ON eventos(estado);
 
 CREATE INDEX IF NOT EXISTS idx_tickets_evento ON tickets(evento_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_orden ON tickets(orden_id);
@@ -97,34 +142,9 @@ CREATE INDEX IF NOT EXISTS idx_tickets_estado ON tickets(cancelado, usado);
 CREATE INDEX IF NOT EXISTS idx_ordenes_estado ON ordenes(estado);
 CREATE INDEX IF NOT EXISTS idx_ordenes_evento ON ordenes(evento_id);
 
--- ─── Seed evento demo ─────────────────────────────────────────────────────
-
-INSERT INTO eventos (
-  id, nombre, fecha, precio, capacidad, activo,
-  logo_url, flyer_url, color_primario, color_secundario,
-  descripcion, lugar, maps_url,
-  contacto_whatsapp, contacto_email, contacto_instagram,
-  texto_footer, organizador_nombre
-) VALUES (
-  'evento-demo',
-  'Fiesta de Promo — Buzo Chomba Bandera',
-  '2026-06-20T23:00:00Z',
-  15000,
-  300,
-  true,
-  '/flyer.jpeg',
-  '/flyer.jpeg',
-  '#FFCC00',
-  '#1a1a1a',
-  'Fiesta de promo con desfile, presentación y joda. Incluye buzo, chomba y bandera.',
-  'A confirmar',
-  '',
-  '',
-  '',
-  '',
-  'Consultas por WhatsApp o redes. Reembolsos: contactá al organizador.',
-  'Promo 2026'
-) ON CONFLICT (id) DO NOTHING;
+-- ─── Datos iniciales ──────────────────────────────────────────────────────
+-- Las fiestas se cargan con supabase/seeds/recepciones_2026.sql (o desde el admin).
+INSERT INTO app_branding (id) VALUES ('default') ON CONFLICT (id) DO NOTHING;
 
 -- ─── RLS ──────────────────────────────────────────────────────────────────
 
@@ -132,10 +152,12 @@ ALTER TABLE eventos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ordenes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tipos_entrada ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_branding ENABLE ROW LEVEL SECURITY;
 
--- Público: solo leer evento activo
+-- Público: solo leer fiestas publicadas
 CREATE POLICY "eventos_public_read" ON eventos
-  FOR SELECT USING (activo = true);
+  FOR SELECT USING (estado IN ('venta', 'pausado'));
 
 -- Todo lo demás: solo service_role (API server-side)
 -- No crear políticas de anon/authenticated para ordenes, tickets, activity_log
@@ -146,3 +168,4 @@ ALTER PUBLICATION supabase_realtime ADD TABLE eventos;
 ALTER PUBLICATION supabase_realtime ADD TABLE ordenes;
 ALTER PUBLICATION supabase_realtime ADD TABLE tickets;
 ALTER PUBLICATION supabase_realtime ADD TABLE activity_log;
+ALTER PUBLICATION supabase_realtime ADD TABLE tipos_entrada;

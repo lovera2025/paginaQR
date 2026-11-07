@@ -9,7 +9,7 @@ export async function createCheckoutPreference(
   evento: Evento
 ): Promise<{ initPoint: string } | { error: string }> {
   const appUrl = getAppUrl();
-  const title = `Entrada — ${evento.nombre}`.slice(0, 256);
+  const title = `Entrada ${orden.tipoNombre} — ${evento.nombre}`.slice(0, 256);
   const mp = await getMpSettings();
 
   const result = await mpFetch<MpPreferenceResponse>("/checkout/preferences", {
@@ -17,10 +17,11 @@ export async function createCheckoutPreference(
     body: JSON.stringify({
       items: [
         {
-          id: evento.id,
+          id: orden.tipoEntradaId ?? evento.id,
           title,
           quantity: orden.cantidad,
-          unit_price: Number(evento.precio),
+          // Precio congelado al crear la orden (si el admin lo cambia después, no afecta).
+          unit_price: Number(orden.precioUnitario),
           currency_id: "ARS",
         },
       ],

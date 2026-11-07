@@ -1,24 +1,30 @@
 import { NextResponse } from "next/server";
-import { getEventoActivo, updateEvento } from "@/lib/db";
-import { requireAuth } from "@/lib/auth/cookies";
+import { updateEvento } from "@/lib/db";
+import { adminConEvento, errorJson } from "@/lib/api/admin";
+import { isSlugValido } from "@/lib/entradas/tipos";
 
-export async function GET() {
-  if (!(await requireAuth("admin"))) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-  const evento = await getEventoActivo();
-  if (!evento) {
-    return NextResponse.json({ error: "No hay evento" }, { status: 404 });
-  }
-  return NextResponse.json(evento);
+export async function GET(request: Request) {
+  const ctx = await adminConEvento(request);
+  if ("response" in ctx) return ctx.response;
+  return NextResponse.json(ctx.evento);
 }
 
 export async function PUT(request: Request) {
-  if (!(await requireAuth("admin"))) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
+  const ctx = await adminConEvento(request);
+  if ("response" in ctx) return ctx.response;
 
   const body = await request.json();
-  const evento = await updateEvento(body);
-  return NextResponse.json(evento);
+  if (body.slug !== undefined) {
+    body.slug = String(body.slug).trim().toLowerCase();
+    if (!isSlugValido(body.slug)) {
+      return errorJson("El link solo puede tener letras minúsculas, números y guiones");
+    }
+  }
+  if (body.capacidad !== undefined && !(Number(body.capacidad) >= 1)) {
+    return errorJson("La capacidad debe ser al menos 1");
+  }
+
+  const result = await updateEvento(ctx.evento.id, body);
+  if ("error" in result) return errorJson(result.error);
+  return NextResponse.json(result);
 }

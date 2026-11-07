@@ -57,13 +57,11 @@ export async function buildEmailInlineAssets(
 ): Promise<{
   attachments: ResendInlineAttachment[];
   flyerCid: string | null;
-  logoCid: string | null;
   qrCids: string[];
 }> {
   const appUrl = getAppUrl();
   const attachments: ResendInlineAttachment[] = [];
   const flyerUrl = absoluteAssetUrl(evento.flyerUrl, appUrl);
-  const logoUrl = absoluteAssetUrl(evento.logoUrl, appUrl);
 
   let flyerCid: string | null = null;
   if (flyerUrl) {
@@ -71,14 +69,6 @@ export async function buildEmailInlineAssets(
     const flyer = await attachImageFromUrl(flyerUrl, flyerCid, "flyer.jpg");
     if (flyer) attachments.push(flyer);
     else flyerCid = null;
-  }
-
-  let logoCid: string | null = null;
-  if (logoUrl && logoUrl !== flyerUrl) {
-    logoCid = "logo";
-    const logo = await attachImageFromUrl(logoUrl, logoCid, "logo.jpg");
-    if (logo) attachments.push(logo);
-    else logoCid = null;
   }
 
   const qrCids: string[] = [];
@@ -94,5 +84,5 @@ export async function buildEmailInlineAssets(
     });
   }
 
-  return { attachments, flyerCid, logoCid, qrCids };
+  return { attachments, flyerCid, qrCids };
 }

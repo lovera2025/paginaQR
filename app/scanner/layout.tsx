@@ -1,13 +1,11 @@
 import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
-  title: "Scanner",
+  title: "Scanner — Junior Eventos",
   manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "Scanner QR",
-  },
+  robots: { index: false, follow: false },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "JE Staff" },
+  icons: { apple: "/apple-touch-icon.png", icon: "/icon-192.png" },
 };
 
 export const viewport: Viewport = {
@@ -17,10 +15,6 @@ export const viewport: Viewport = {
   themeColor: "#050508",
 };
 
-export default function ScannerLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function ScannerLayout({ children }: { children: React.ReactNode }) {
   return children;
 }

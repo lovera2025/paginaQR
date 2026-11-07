@@ -1,156 +1,229 @@
 import { v4 as uuidv4 } from "uuid";
-import { SEED_EVENTO } from "./seed";
+import { buildSeed, SEED_BRANDING } from "./seed";
 import { canComprarPublico } from "@/lib/evento/estado";
+import {
+  buildCatalogo,
+  computeStats,
+  evaluarTipos,
+  horaAr,
+  ordenarTipos,
+  uniqueSlug,
+  validarCompraTipo,
+} from "@/lib/entradas/tipos";
 import type {
   ActivityLog,
   AdminStats,
+  Branding,
   Evento,
+  EventoCatalogo,
   HistorialItem,
   NuevoEventoInput,
   Orden,
   PaymentMethod,
   Ticket,
+  TipoEntrada,
+  TipoEntradaDisponible,
+  TipoEntradaInput,
   VerifyResult,
 } from "@/types";
 
 interface MockStore {
-  evento: Evento;
-  eventosPasados: Evento[];
+  eventos: Evento[];
+  tipos: TipoEntrada[];
   ordenes: Orden[];
   tickets: Ticket[];
   activity: ActivityLog[];
+  branding: Branding;
 }
 
 declare global {
   // eslint-disable-next-line no-var
-  var __mockStore: MockStore | undefined;
+  var __mockStoreV2: MockStore | undefined;
 }
 
 function getStore(): MockStore {
-  if (!global.__mockStore) {
-    global.__mockStore = {
-      evento: { ...SEED_EVENTO },
-      eventosPasados: [],
+  if (!global.__mockStoreV2) {
+    const seed = buildSeed();
+    global.__mockStoreV2 = {
+      eventos: seed.eventos,
+      tipos: seed.tipos,
       ordenes: [],
       tickets: [],
       activity: [],
+      branding: { ...SEED_BRANDING },
     };
   }
-  if (!global.__mockStore.evento.estado) {
-    global.__mockStore.evento.estado = "borrador";
-  }
-  if (!global.__mockStore.eventosPasados) {
-    global.__mockStore.eventosPasados = [];
-  }
-  return global.__mockStore;
+  return global.__mockStoreV2;
 }
 
 function logActivity(tipo: ActivityLog["tipo"], mensaje: string) {
   const store = getStore();
-  store.activity.unshift({
-    id: uuidv4(),
-    tipo,
-    mensaje,
-    createdAt: new Date().toISOString(),
-  });
+  store.activity.unshift({ id: uuidv4(), tipo, mensaje, createdAt: new Date().toISOString() });
   if (store.activity.length > 100) store.activity.pop();
 }
 
-export function getEventoActivo(): Evento | null {
-  const { evento } = getStore();
-  return evento.activo ? evento : null;
+function porFecha(a: Evento, b: Evento) {
+  return new Date(a.fecha).getTime() - new Date(b.fecha).getTime();
+}
+
+function ticketsDe(eventoId: string): Ticket[] {
+  return getStore().tickets.filter((t) => t.eventoId === eventoId);
+}
+
+// ─── Eventos ─────────────────────────────────────────────────────────────
+
+export function getEventosPublicados(): Evento[] {
+  return getStore()
+    .eventos.filter((e) => e.estado === "venta" || e.estado === "pausado")
+    .sort(porFecha);
+}
+
+export function getEventosAdmin(): Evento[] {
+  return getStore().eventos.filter((e) => e.estado !== "finalizado").sort(porFecha);
 }
 
 export function getEventoById(eventoId: string): Evento | null {
-  const store = getStore();
-  if (store.evento.id === eventoId) return store.evento;
-  return store.eventosPasados.find((e) => e.id === eventoId) ?? null;
+  return getStore().eventos.find((e) => e.id === eventoId) ?? null;
 }
 
-export function updateEvento(data: Partial<Evento>): Evento {
-  const store = getStore();
-  const appearance = { ...data };
-  delete appearance.estado;
-  delete appearance.activo;
-  delete appearance.id;
-  store.evento = { ...store.evento, ...appearance };
-  return store.evento;
+export function getEventoBySlug(slug: string): Evento | null {
+  return getStore().eventos.find((e) => e.slug === slug) ?? null;
 }
 
-export function countTicketsActivos(): number {
-  const { evento, tickets } = getStore();
-  return tickets.filter((t) => t.eventoId === evento.id && !t.cancelado).length;
+export function getCatalogo(): EventoCatalogo[] {
+  const store = getStore();
+  return getEventosPublicados().map((ev) =>
+    buildCatalogo(
+      ev,
+      store.tipos.filter((t) => t.eventoId === ev.id),
+      ticketsDe(ev.id)
+    )
+  );
 }
+
+export function getEventoCatalogo(eventoId: string): EventoCatalogo | null {
+  const ev = getEventoById(eventoId);
+  if (!ev) return null;
+  return buildCatalogo(
+    ev,
+    getStore().tipos.filter((t) => t.eventoId === ev.id),
+    ticketsDe(ev.id)
+  );
+}
+
+export function updateEvento(eventoId: string, data: Partial<Evento>): Evento | { error: string } {
+  const store = getStore();
+  const idx = store.eventos.findIndex((e) => e.id === eventoId);
+  if (idx < 0) return { error: "Fiesta no encontrada" };
+  const cambios = { ...data };
+  delete cambios.estado;
+  delete cambios.activo;
+  delete cambios.id;
+  if (cambios.slug !== undefined) {
+    const otros = store.eventos.filter((e) => e.id !== eventoId).map((e) => e.slug);
+    if (otros.includes(cambios.slug)) return { error: "Ese link ya lo usa otra fiesta" };
+  }
+  store.eventos[idx] = { ...store.eventos[idx], ...cambios };
+  return store.eventos[idx];
+}
+
+// ─── Tipos de entrada ────────────────────────────────────────────────────
+
+export function getTiposByEvento(eventoId: string): TipoEntrada[] {
+  return ordenarTipos(getStore().tipos.filter((t) => t.eventoId === eventoId));
+}
+
+export function getTiposDisponibles(eventoId: string): TipoEntradaDisponible[] {
+  const ev = getEventoById(eventoId);
+  if (!ev) return [];
+  return evaluarTipos(ev, getTiposByEvento(eventoId), ticketsDe(eventoId));
+}
+
+export function getTipoById(tipoId: string): TipoEntrada | null {
+  return getStore().tipos.find((t) => t.id === tipoId) ?? null;
+}
+
+export function createTipo(eventoId: string, input: TipoEntradaInput): TipoEntrada | { error: string } {
+  if (!getEventoById(eventoId)) return { error: "Fiesta no encontrada" };
+  const tipo: TipoEntrada = { ...input, id: uuidv4(), eventoId, createdAt: new Date().toISOString() };
+  getStore().tipos.push(tipo);
+  return tipo;
+}
+
+export function updateTipo(tipoId: string, input: Partial<TipoEntradaInput>): TipoEntrada | { error: string } {
+  const store = getStore();
+  const idx = store.tipos.findIndex((t) => t.id === tipoId);
+  if (idx < 0) return { error: "Tipo no encontrado" };
+  store.tipos[idx] = { ...store.tipos[idx], ...input };
+  return store.tipos[idx];
+}
+
+export function deleteTipo(tipoId: string): { ok: true } | { error: string } {
+  const store = getStore();
+  const usado =
+    store.ordenes.some((o) => o.tipoEntradaId === tipoId) ||
+    store.tickets.some((t) => t.tipoEntradaId === tipoId);
+  if (usado) return { error: "Este tipo ya tiene compras: desactivalo en lugar de borrarlo" };
+  store.tipos = store.tipos.filter((t) => t.id !== tipoId);
+  return { ok: true };
+}
+
+export function reordenarTipos(eventoId: string, ids: string[]): { ok: true } {
+  const store = getStore();
+  ids.forEach((id, i) => {
+    const t = store.tipos.find((x) => x.id === id && x.eventoId === eventoId);
+    if (t) t.orden = i;
+  });
+  return { ok: true };
+}
+
+// ─── Órdenes ─────────────────────────────────────────────────────────────
 
 export function createOrdenPendiente(input: {
+  eventoId: string;
+  tipoEntradaId: string;
   compradorNombre: string;
   compradorEmail: string;
   cantidad: number;
 }): { orden: Orden } | { error: string } {
   const store = getStore();
-  const evento = store.evento;
-
-  if (!evento.activo) return { error: "No hay evento activo" };
+  const evento = getEventoById(input.eventoId);
+  if (!evento) return { error: "Fiesta no encontrada" };
   if (!canComprarPublico(evento.estado)) {
-    if (evento.estado === "pausado") {
-      return { error: "Las ventas están pausadas temporalmente" };
-    }
-    return { error: "Las ventas están cerradas para este evento" };
+    if (evento.estado === "pausado") return { error: "Las ventas están pausadas temporalmente" };
+    return { error: "Las ventas están cerradas para esta fiesta" };
   }
-  if (input.cantidad < 1 || input.cantidad > 10)
+  if (!Number.isInteger(input.cantidad) || input.cantidad < 1 || input.cantidad > 10)
     return { error: "Cantidad inválida (1-10)" };
   if (!input.compradorNombre.trim() || !input.compradorEmail.trim())
     return { error: "Nombre y email son obligatorios" };
 
-  const activos = countTicketsActivos();
-  if (activos + input.cantidad > evento.capacidad)
-    return { error: `Solo quedan ${evento.capacidad - activos} entradas` };
+  const disponible = getTiposDisponibles(evento.id).find((t) => t.id === input.tipoEntradaId);
+  const problema = validarCompraTipo(disponible, input.cantidad);
+  if (problema || !disponible) return { error: problema ?? "Tipo no disponible" };
 
   const orden: Orden = {
     id: uuidv4(),
     eventoId: evento.id,
+    tipoEntradaId: disponible.id,
+    tipoNombre: disponible.nombre,
+    precioUnitario: disponible.precio,
     paymentId: null,
     paymentMethod: null,
     compradorNombre: input.compradorNombre.trim(),
     compradorEmail: input.compradorEmail.trim().toLowerCase(),
     cantidad: input.cantidad,
-    montoTotal: evento.precio * input.cantidad,
+    montoTotal: disponible.precio * input.cantidad,
     estado: "pendiente",
     createdAt: new Date().toISOString(),
     emailSentAt: null,
   };
-
   store.ordenes.unshift(orden);
   return { orden };
 }
 
-function createTicketsForOrden(orden: Orden): Ticket[] {
-  const created: Ticket[] = [];
-  for (let i = 1; i <= orden.cantidad; i++) {
-    const ticket: Ticket = {
-      id: uuidv4(),
-      ordenId: orden.id,
-      eventoId: orden.eventoId,
-      compradorNombre: orden.compradorNombre,
-      compradorEmail: orden.compradorEmail,
-      numeroEntrada: i,
-      totalEntradas: orden.cantidad,
-      usado: false,
-      cancelado: false,
-      usadoAt: null,
-      canceladoAt: null,
-      motivoCancelacion: null,
-      createdAt: new Date().toISOString(),
-    };
-    created.push(ticket);
-  }
-  return created;
-}
-
 export function getOrdenByPaymentId(paymentId: string): Orden | null {
-  return (
-    getStore().ordenes.find((o) => o.paymentId === paymentId) ?? null
-  );
+  return getStore().ordenes.find((o) => o.paymentId === paymentId) ?? null;
 }
 
 export function setOrdenPaymentId(
@@ -170,38 +243,60 @@ export async function approveOrden(
   ordenId: string,
   paymentId?: string,
   paymentMethod?: PaymentMethod
-): Promise<{ orden: Orden; tickets: Ticket[] } | { error: string }> {
+): Promise<{ orden: Orden; tickets: Ticket[]; nueva: boolean } | { error: string }> {
   const store = getStore();
   const orden = store.ordenes.find((o) => o.id === ordenId);
   if (!orden) return { error: "Orden no encontrada" };
   if (orden.estado === "aprobado") {
-    const existing = store.tickets.filter((t) => t.ordenId === ordenId);
-    return { orden, tickets: existing };
+    return { orden, tickets: store.tickets.filter((t) => t.ordenId === ordenId), nueva: false };
   }
   if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
 
-  const activos = countTicketsActivos();
-  if (activos + orden.cantidad > store.evento.capacidad)
-    return { error: "Capacidad agotada" };
+  const evento = getEventoById(orden.eventoId);
+  if (!evento) return { error: "Fiesta no encontrada" };
+  const tickets = ticketsDe(evento.id).filter((t) => !t.cancelado);
+  if (tickets.length + orden.cantidad > evento.capacidad) return { error: "Capacidad agotada" };
+
+  const tipo = orden.tipoEntradaId ? getTipoById(orden.tipoEntradaId) : null;
+  if (tipo?.cupo != null) {
+    const vendidasTipo = tickets.filter((t) => t.tipoEntradaId === tipo.id).length;
+    if (vendidasTipo + orden.cantidad > tipo.cupo) return { error: `Cupo ${tipo.nombre} agotado` };
+  }
 
   orden.estado = "aprobado";
   orden.paymentId = paymentId ?? `mock_${orden.id.slice(0, 8)}`;
   if (paymentMethod) orden.paymentMethod = paymentMethod;
 
-  const tickets = createTicketsForOrden(orden);
-  store.tickets.unshift(...tickets);
+  const now = new Date().toISOString();
+  const nuevos: Ticket[] = Array.from({ length: orden.cantidad }, (_, i) => ({
+    id: uuidv4(),
+    ordenId: orden.id,
+    eventoId: orden.eventoId,
+    tipoEntradaId: orden.tipoEntradaId,
+    tipoNombre: orden.tipoNombre,
+    estilo: tipo?.estilo ?? "general",
+    compradorNombre: orden.compradorNombre,
+    compradorEmail: orden.compradorEmail,
+    numeroEntrada: i + 1,
+    totalEntradas: orden.cantidad,
+    usado: false,
+    cancelado: false,
+    usadoAt: null,
+    canceladoAt: null,
+    motivoCancelacion: null,
+    createdAt: now,
+  }));
+  store.tickets.unshift(...nuevos);
 
   logActivity(
     "venta",
-    `Venta: ${orden.compradorNombre}, ${orden.cantidad} entrada(s), $${orden.montoTotal.toLocaleString("es-AR")}`
+    `Venta ${evento.slug}: ${orden.compradorNombre}, ${orden.cantidad} × ${orden.tipoNombre}, $${orden.montoTotal.toLocaleString("es-AR")}`
   );
-
-  return { orden, tickets };
+  return { orden, tickets: nuevos, nueva: true };
 }
 
 export function rejectOrden(ordenId: string): { orden: Orden } | { error: string } {
-  const store = getStore();
-  const orden = store.ordenes.find((o) => o.id === ordenId);
+  const orden = getStore().ordenes.find((o) => o.id === ordenId);
   if (!orden) return { error: "Orden no encontrada" };
   if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
   orden.estado = "rechazado";
@@ -213,310 +308,245 @@ export function getOrden(ordenId: string): Orden | undefined {
 }
 
 export function getTicketsByOrden(ordenId: string): Ticket[] {
-  return getStore().tickets.filter((t) => t.ordenId === ordenId);
+  return getStore()
+    .tickets.filter((t) => t.ordenId === ordenId)
+    .sort((a, b) => a.numeroEntrada - b.numeroEntrada);
 }
 
-export function getTicket(ticketId: string): Ticket | undefined {
-  return getStore().tickets.find((t) => t.id === ticketId);
+export function getTicket(ticketId: string): Ticket | null {
+  return getStore().tickets.find((t) => t.id === ticketId) ?? null;
 }
 
-export function verifyTicket(ticketId: string): VerifyResult {
-  const store = getStore();
-  const ticket = store.tickets.find((t) => t.id === ticketId);
+/** Reserva el envío del mail (idempotente). Devuelve true si este proceso debe enviarlo. */
+export function claimEmailSend(ordenId: string): boolean {
+  const orden = getOrden(ordenId);
+  if (!orden || orden.emailSentAt) return false;
+  orden.emailSentAt = new Date().toISOString();
+  return true;
+}
 
-  if (!ticket) {
-    return { status: "invalido", message: "Entrada no válida" };
+export function releaseEmailSend(ordenId: string) {
+  const orden = getOrden(ordenId);
+  if (orden) orden.emailSentAt = null;
+}
+
+// ─── Puerta ──────────────────────────────────────────────────────────────
+
+export function verifyTicket(ticketId: string, eventoId?: string): VerifyResult {
+  const ticket = getTicket(ticketId);
+  if (!ticket) return { status: "invalido", message: "QR no reconocido" };
+
+  const evento = getEventoById(ticket.eventoId);
+  const extra = { eventoNombre: evento?.nombre, eventoFecha: evento?.fecha };
+
+  if (eventoId && ticket.eventoId !== eventoId) {
+    return { status: "otro_evento", ticket, ...extra, message: "Es de otra fiesta" };
   }
   if (ticket.cancelado) {
-    return {
-      status: "cancelada",
-      ticket,
-      message: "Entrada cancelada / reembolsada",
-    };
+    return { status: "cancelada", ticket, ...extra, message: "Entrada cancelada" };
   }
   if (ticket.usado) {
     return {
       status: "usada",
       ticket,
-      message: `Ya ingresó${ticket.usadoAt ? ` a las ${new Date(ticket.usadoAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}` : ""}`,
+      ...extra,
+      message: `Ya ingresó${ticket.usadoAt ? ` a las ${horaAr(ticket.usadoAt)} hs` : ""}`,
     };
   }
 
   ticket.usado = true;
   ticket.usadoAt = new Date().toISOString();
-
   logActivity(
     "ingreso",
-    `Ingreso: ${ticket.compradorNombre} (entrada ${ticket.numeroEntrada}/${ticket.totalEntradas})`
+    `Ingreso ${evento?.slug ?? ""}: ${ticket.compradorNombre} · ${ticket.tipoNombre} (${ticket.numeroEntrada}/${ticket.totalEntradas})`
   );
-
-  return {
-    status: "valido",
-    ticket,
-    message: "Entrada válida — bienvenido/a",
-  };
+  return { status: "valido", ticket, ...extra, message: "Entrada válida · bienvenido/a" };
 }
 
-export function cancelTicket(
-  ticketId: string,
-  motivo?: string
-): { ticket: Ticket } | { error: string } {
-  const store = getStore();
-  const ticket = store.tickets.find((t) => t.id === ticketId);
+export function cancelTicket(ticketId: string, motivo?: string): { ticket: Ticket } | { error: string } {
+  const ticket = getTicket(ticketId);
   if (!ticket) return { error: "Ticket no encontrado" };
   if (ticket.cancelado) return { error: "Ya está cancelado" };
-
   ticket.cancelado = true;
   ticket.canceladoAt = new Date().toISOString();
   ticket.motivoCancelacion = motivo ?? null;
-
-  logActivity(
-    "baja",
-    `Baja: ${ticket.compradorNombre} (entrada ${ticket.numeroEntrada}/${ticket.totalEntradas})`
-  );
-
+  logActivity("baja", `Baja: ${ticket.compradorNombre} (entrada ${ticket.numeroEntrada}/${ticket.totalEntradas})`);
   return { ticket };
 }
 
 export function refundOrden(ordenId: string): { orden: Orden } | { error: string } {
   const store = getStore();
-  const orden = store.ordenes.find((o) => o.id === ordenId);
+  const orden = getOrden(ordenId);
   if (!orden) return { error: "Orden no encontrada" };
   if (orden.estado === "reembolsado") return { error: "Ya reembolsada" };
   if (orden.estado !== "aprobado") return { error: "Solo órdenes aprobadas" };
-
-  const tickets = store.tickets.filter((t) => t.ordenId === ordenId);
-  for (const t of tickets) {
+  for (const t of store.tickets.filter((x) => x.ordenId === ordenId)) {
     if (!t.cancelado) {
       t.cancelado = true;
       t.canceladoAt = new Date().toISOString();
       t.motivoCancelacion = "Reembolso de orden";
     }
   }
-
   orden.estado = "reembolsado";
-
-  logActivity(
-    "reembolso",
-    `Reembolso: ${orden.compradorNombre}, $${orden.montoTotal.toLocaleString("es-AR")}`
-  );
-
+  logActivity("reembolso", `Reembolso: ${orden.compradorNombre}, $${orden.montoTotal.toLocaleString("es-AR")}`);
   return { orden };
 }
 
-export function getOrdenes(): Orden[] {
-  const { evento, ordenes } = getStore();
-  if (!evento.activo) return [];
-  return ordenes.filter((o) => o.eventoId === evento.id);
+// ─── Admin ───────────────────────────────────────────────────────────────
+
+export function getOrdenes(eventoId: string): Orden[] {
+  return getStore().ordenes.filter((o) => o.eventoId === eventoId);
 }
 
-export function getTickets(): Ticket[] {
-  const { evento, tickets } = getStore();
-  if (!evento.activo) return [];
-  return tickets.filter((t) => t.eventoId === evento.id);
+export function getTickets(eventoId: string): Ticket[] {
+  return ticketsDe(eventoId);
 }
 
 export function getActivity(): ActivityLog[] {
   return [...getStore().activity];
 }
 
-export function getAdminStats(): AdminStats {
-  const store = getStore();
-  if (!store.evento.activo) {
-    return {
-      vendidasActivas: 0,
-      recaudado: 0,
-      sinUsar: 0,
-      ingresaron: 0,
-      canceladas: 0,
-      reembolsado: 0,
-      capacidad: 0,
-      disponibles: 0,
-      totalOrdenes: 0,
-    };
-  }
-  const tickets = getTickets();
-  const activas = tickets.filter((t) => !t.cancelado);
-  const canceladas = tickets.filter((t) => t.cancelado);
-  const sinUsar = activas.filter((t) => !t.usado);
-  const ingresaron = activas.filter((t) => t.usado);
-
-  const recaudado = getOrdenes()
-    .filter((o) => o.estado === "aprobado")
-    .reduce((sum, o) => sum + o.montoTotal, 0);
-
-  const reembolsado = getOrdenes()
-    .filter((o) => o.estado === "reembolsado")
-    .reduce((sum, o) => sum + o.montoTotal, 0);
-
-  return {
-    vendidasActivas: activas.length,
-    recaudado,
-    sinUsar: sinUsar.length,
-    ingresaron: ingresaron.length,
-    canceladas: canceladas.length,
-    reembolsado,
-    capacidad: store.evento.capacidad,
-    disponibles: store.evento.capacidad - activas.length,
-    totalOrdenes: getOrdenes().filter((o) => o.estado === "aprobado").length,
-  };
+export function getAdminStats(eventoId: string): AdminStats {
+  const ev = getEventoById(eventoId);
+  return computeStats(
+    { capacidad: ev?.capacidad ?? 0 },
+    getTiposByEvento(eventoId),
+    getOrdenes(eventoId),
+    ticketsDe(eventoId)
+  );
 }
 
-export function resetVentasEventoActivo(): { ok: true } | { error: string } {
-  const store = getStore();
-  if (!store.evento.activo) return { error: "No hay evento activo" };
-  if (store.evento.estado !== "borrador") {
-    return { error: "Solo se puede reiniciar ventas en borrador (modo prueba)" };
-  }
+function cambiarEstado(
+  eventoId: string,
+  desde: Evento["estado"][],
+  hacia: Evento["estado"],
+  error: string
+): { evento: Evento } | { error: string } {
+  const ev = getEventoById(eventoId);
+  if (!ev) return { error: "Fiesta no encontrada" };
+  if (!desde.includes(ev.estado)) return { error };
+  ev.estado = hacia;
+  return { evento: ev };
+}
 
-  const eventoId = store.evento.id;
+export function resetVentas(eventoId: string): { ok: true } | { error: string } {
+  const store = getStore();
+  const ev = getEventoById(eventoId);
+  if (!ev) return { error: "Fiesta no encontrada" };
+  if (ev.estado !== "borrador") return { error: "Solo se puede reiniciar ventas en borrador (modo prueba)" };
   store.ordenes = store.ordenes.filter((o) => o.eventoId !== eventoId);
   store.tickets = store.tickets.filter((t) => t.eventoId !== eventoId);
-  store.activity = [];
-
   return { ok: true };
 }
 
-export function abrirVentaEvento(): { evento: Evento } | { error: string } {
-  const store = getStore();
-  if (!store.evento.activo) return { error: "No hay evento activo" };
-  if (store.evento.estado !== "borrador") {
-    return { error: "Solo se puede abrir venta desde borrador" };
-  }
-  store.evento.estado = "venta";
-  return { evento: store.evento };
+export function abrirVenta(eventoId: string) {
+  return cambiarEstado(eventoId, ["borrador"], "venta", "Solo se puede abrir venta desde borrador");
 }
 
-export function pausarVentasEvento(): { evento: Evento } | { error: string } {
-  const store = getStore();
-  if (!store.evento.activo) return { error: "No hay evento activo" };
-  if (store.evento.estado !== "venta") {
-    return { error: "Solo se pueden pausar ventas con el evento en venta" };
-  }
-  store.evento.estado = "pausado";
-  return { evento: store.evento };
+export function pausarVentas(eventoId: string) {
+  return cambiarEstado(eventoId, ["venta"], "pausado", "Solo se pueden pausar ventas con la fiesta en venta");
 }
 
-export function reanudarVentasEvento(): { evento: Evento } | { error: string } {
-  const store = getStore();
-  if (!store.evento.activo) return { error: "No hay evento activo" };
-  if (store.evento.estado !== "pausado") {
-    return { error: "Solo se pueden reanudar ventas desde pausado" };
-  }
-  store.evento.estado = "venta";
-  return { evento: store.evento };
+export function reanudarVentas(eventoId: string) {
+  return cambiarEstado(eventoId, ["pausado"], "venta", "Solo se pueden reanudar ventas desde pausado");
 }
 
-export function cerrarEventoActivo(): { evento: Evento } | { error: string } {
+export function cerrarEvento(eventoId: string): { evento: Evento } | { error: string } {
   const store = getStore();
-  if (!store.evento.activo) return { error: "No hay evento activo" };
-  if (store.evento.estado !== "venta" && store.evento.estado !== "pausado") {
-    return { error: "Solo se puede cerrar un evento en venta o pausado" };
+  const ev = getEventoById(eventoId);
+  if (!ev) return { error: "Fiesta no encontrada" };
+  if (ev.estado !== "venta" && ev.estado !== "pausado")
+    return { error: "Solo se puede cerrar una fiesta en venta o pausada" };
+  for (const o of store.ordenes) {
+    if (o.eventoId === eventoId && o.estado === "pendiente") o.estado = "rechazado";
   }
-
-  for (const orden of store.ordenes) {
-    if (orden.eventoId === store.evento.id && orden.estado === "pendiente") {
-      orden.estado = "rechazado";
-    }
-  }
-
-  store.evento.estado = "finalizado";
-  store.evento.activo = false;
-
-  // Guardar copia en historial
-  store.eventosPasados.unshift({ ...store.evento });
-
-  return { evento: store.evento };
+  ev.estado = "finalizado";
+  ev.activo = false;
+  return { evento: ev };
 }
 
 export function getEventosFinalizados(): Evento[] {
-  return getStore().eventosPasados;
+  return getStore()
+    .eventos.filter((e) => e.estado === "finalizado")
+    .sort((a, b) => porFecha(b, a));
 }
 
 export function getOrdenesByEvento(eventoId: string): Orden[] {
-  return getStore().ordenes.filter((o) => o.eventoId === eventoId);
+  return getOrdenes(eventoId);
 }
 
 export function getTicketsByEvento(eventoId: string): Ticket[] {
-  return getStore().tickets.filter((t) => t.eventoId === eventoId);
-}
-
-function computeStats(eventoId: string, capacidad: number): AdminStats {
-  const store = getStore();
-  const tickets = store.tickets.filter((t) => t.eventoId === eventoId);
-  const ordenes = store.ordenes.filter((o) => o.eventoId === eventoId);
-  const activas = tickets.filter((t) => !t.cancelado);
-  const canceladas = tickets.filter((t) => t.cancelado);
-  const sinUsar = activas.filter((t) => !t.usado);
-  const ingresaron = activas.filter((t) => t.usado);
-  const recaudado = ordenes
-    .filter((o) => o.estado === "aprobado")
-    .reduce((sum, o) => sum + o.montoTotal, 0);
-  const reembolsado = ordenes
-    .filter((o) => o.estado === "reembolsado")
-    .reduce((sum, o) => sum + o.montoTotal, 0);
-  return {
-    vendidasActivas: activas.length,
-    recaudado,
-    sinUsar: sinUsar.length,
-    ingresaron: ingresaron.length,
-    canceladas: canceladas.length,
-    reembolsado,
-    capacidad,
-    disponibles: capacidad - activas.length,
-    totalOrdenes: ordenes.filter((o) => o.estado === "aprobado").length,
-  };
+  return ticketsDe(eventoId);
 }
 
 export function getHistorialItems(): HistorialItem[] {
-  const store = getStore();
-  return store.eventosPasados.map((ev) => ({
-    evento: ev,
-    stats: computeStats(ev.id, ev.capacidad),
-  }));
+  return getEventosFinalizados().map((ev) => ({ evento: ev, stats: getAdminStats(ev.id) }));
 }
 
-export function crearNuevoEvento(
-  input: NuevoEventoInput
-): { evento: Evento } | { error: string } {
+export function crearNuevoEvento(input: NuevoEventoInput): { evento: Evento } | { error: string } {
   const store = getStore();
-
-  if (store.evento.activo) {
-    return { error: "Ya hay un evento activo. Cerrá el actual antes de crear uno nuevo." };
-  }
-
   if (!input.nombre.trim()) return { error: "El nombre es obligatorio" };
   if (!input.fecha) return { error: "La fecha es obligatoria" };
   if (input.precio <= 0) return { error: "El precio debe ser mayor a 0" };
   if (input.capacidad < 1) return { error: "La capacidad debe ser al menos 1" };
 
-  const anterior = store.eventosPasados[0] ?? null;
+  const anterior = [...store.eventos].reverse()[0] ?? null;
+  const copiar = input.copiarBranding && anterior;
+  const b = store.branding;
 
-  const nuevoEvento: Evento = {
-    id: `evento-${Date.now()}`,
+  const evento: Evento = {
+    id: `evento-${uuidv4().slice(0, 8)}`,
+    slug: uniqueSlug(input.nombre, store.eventos.map((e) => e.slug)),
     nombre: input.nombre.trim(),
+    subtitulo: copiar ? anterior.subtitulo : "",
+    dj: "",
     fecha: input.fecha,
     precio: input.precio,
     capacidad: input.capacidad,
     activo: true,
     estado: "borrador",
-    logoUrl: input.copiarBranding && anterior ? anterior.logoUrl : "",
-    flyerUrl: input.copiarBranding && anterior ? anterior.flyerUrl : "",
-    colorPrimario: input.copiarBranding && anterior ? anterior.colorPrimario : "#ff006e",
-    colorSecundario: input.copiarBranding && anterior ? anterior.colorSecundario : "#8338ec",
+    logoUrl: copiar ? anterior.logoUrl : b.logoUrl,
+    flyerUrl: "",
+    colorPrimario: copiar ? anterior.colorPrimario : b.colorPrimario,
+    colorSecundario: copiar ? anterior.colorSecundario : "#0b0b10",
     descripcion: "",
-    lugar: "",
-    mapsUrl: "",
-    contactoWhatsapp: input.copiarBranding && anterior ? anterior.contactoWhatsapp : "",
-    contactoEmail: input.copiarBranding && anterior ? anterior.contactoEmail : "",
-    contactoInstagram: input.copiarBranding && anterior ? anterior.contactoInstagram : "",
-    textoFooter: input.copiarBranding && anterior ? anterior.textoFooter : "",
-    organizadorNombre: input.copiarBranding && anterior ? anterior.organizadorNombre : "",
-    mensajePostergado: input.copiarBranding && anterior ? anterior.mensajePostergado : "",
+    lugar: copiar ? anterior.lugar : "",
+    mapsUrl: copiar ? anterior.mapsUrl : "",
+    contactoWhatsapp: copiar ? anterior.contactoWhatsapp : b.contactoWhatsapp,
+    contactoEmail: copiar ? anterior.contactoEmail : b.contactoEmail,
+    contactoInstagram: copiar ? anterior.contactoInstagram : b.contactoInstagram,
+    textoFooter: copiar ? anterior.textoFooter : b.textoFooter,
+    organizadorNombre: copiar ? anterior.organizadorNombre : b.nombre,
+    mensajePostergado: "",
   };
+  store.eventos.push(evento);
+  store.tipos.push({
+    id: uuidv4(),
+    eventoId: evento.id,
+    nombre: "General",
+    descripcion: "Acceso a la fiesta toda la noche.",
+    beneficios: [],
+    precio: input.precio,
+    cupo: null,
+    ventaDesde: null,
+    ventaHasta: null,
+    estilo: "general",
+    colorAcento: "",
+    activo: true,
+    orden: 0,
+    createdAt: new Date().toISOString(),
+  });
+  return { evento };
+}
 
-  store.evento = nuevoEvento;
-  store.activity = [];
+// ─── Marca ───────────────────────────────────────────────────────────────
 
-  return { evento: nuevoEvento };
+export function getBranding(): Branding {
+  return { ...getStore().branding };
+}
+
+export function updateBranding(data: Partial<Branding>): Branding {
+  const store = getStore();
+  store.branding = { ...store.branding, ...data };
+  return { ...store.branding };
 }

@@ -4,9 +4,17 @@ import { canSimulatePayment, getEnabledPaymentMethods } from "@/lib/payments/met
 
 export async function POST(request: Request) {
   const body = await request.json();
+  const eventoId = String(body.eventoId ?? "").trim();
+  const tipoEntradaId = String(body.tipoEntradaId ?? "").trim();
+  if (!eventoId || !tipoEntradaId) {
+    return NextResponse.json({ error: "Elegí la fiesta y el tipo de entrada" }, { status: 400 });
+  }
+
   const result = await createOrdenPendiente({
-    compradorNombre: body.compradorNombre ?? "",
-    compradorEmail: body.compradorEmail ?? "",
+    eventoId,
+    tipoEntradaId,
+    compradorNombre: String(body.compradorNombre ?? ""),
+    compradorEmail: String(body.compradorEmail ?? ""),
     cantidad: Number(body.cantidad) || 1,
   });
 
@@ -15,27 +23,20 @@ export async function POST(request: Request) {
   }
 
   if (await canSimulatePayment()) {
-    return NextResponse.json({
-      mode: "simulate",
-      ordenId: result.orden.id,
-      orden: result.orden,
-    });
+    return NextResponse.json({ mode: "simulate", ordenId: result.orden.id, orden: result.orden });
   }
-
-  const methods = await getEnabledPaymentMethods();
 
   return NextResponse.json({
     mode: "choose",
     ordenId: result.orden.id,
     orden: result.orden,
-    methods,
+    methods: await getEnabledPaymentMethods(),
   });
 }
 
 export async function GET() {
-  const methods = await getEnabledPaymentMethods();
   return NextResponse.json({
     simulate: await canSimulatePayment(),
-    methods,
+    methods: await getEnabledPaymentMethods(),
   });
 }

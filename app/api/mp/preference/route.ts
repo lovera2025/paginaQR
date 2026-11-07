@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getEventoActivo, getOrden } from "@/lib/db";
+import { getEventoById, getOrden } from "@/lib/db";
 import { createCheckoutPreference } from "@/lib/mercadopago/preferences";
 import { isPaymentMethodAvailable } from "@/lib/payments/methods";
 
@@ -21,9 +21,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "La orden ya fue procesada" }, { status: 400 });
   }
 
-  const evento = await getEventoActivo();
+  const evento = await getEventoById(orden.eventoId);
   if (!evento) {
-    return NextResponse.json({ error: "No hay evento activo" }, { status: 400 });
+    return NextResponse.json({ error: "Fiesta no encontrada" }, { status: 400 });
   }
 
   const preference = await createCheckoutPreference(orden, evento);

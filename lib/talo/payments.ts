@@ -126,7 +126,7 @@ export async function createTaloPaymentForOrden(
     external_id: orden.id,
     webhook_url: getTaloWebhookUrl(),
     redirect_url: `${appUrl}/compra/exito?orden=${orden.id}`,
-    motive: `Entrada — ${evento.nombre}`.slice(0, 256),
+    motive: `${orden.cantidad} × ${orden.tipoNombre} — ${evento.nombre}`.slice(0, 256),
     client_data: {
       first_name: firstName,
       last_name: lastName,

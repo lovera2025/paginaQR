@@ -48,6 +48,41 @@ export function formatFechaCorta(iso: string): string {
   });
 }
 
+/** "VIE 4 DIC" */
+export function diaCorto(iso: string): string {
+  const d = new Date(iso);
+  const dia = d.toLocaleDateString("es-AR", { weekday: "short", timeZone: TZ_AR }).replace(".", "");
+  const num = d.toLocaleDateString("es-AR", { day: "numeric", timeZone: TZ_AR });
+  const mes = d.toLocaleDateString("es-AR", { month: "short", timeZone: TZ_AR }).replace(".", "");
+  return `${dia} ${num} ${mes}`.toUpperCase();
+}
+
+/** "22:00" */
+export function horaCorta(iso: string): string {
+  return new Date(iso).toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: TZ_AR,
+  });
+}
+
+/** "27/11" */
+export function ddmm(iso: string): string {
+  return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", timeZone: TZ_AR });
+}
+
+export function whatsappHref(phone: string | undefined | null, texto?: string): string | null {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  return `https://wa.me/${digits}${texto ? `?text=${encodeURIComponent(texto)}` : ""}`;
+}
+
+export function instagramHref(user: string | undefined | null): string | null {
+  const u = (user ?? "").replace(/^@/, "").trim();
+  return u ? `https://instagram.com/${u}` : null;
+}
+
 export function ticketEstadoLabel(ticket: {
   cancelado: boolean;
   usado: boolean;

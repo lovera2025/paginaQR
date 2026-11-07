@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { getTickets } from "@/lib/db";
-import { requireAuth } from "@/lib/auth/cookies";
+import { adminConEvento } from "@/lib/api/admin";
 
-export async function GET() {
-  if (!(await requireAuth("admin"))) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-  return NextResponse.json({ tickets: await getTickets() });
+export async function GET(request: Request) {
+  const ctx = await adminConEvento(request);
+  if ("response" in ctx) return ctx.response;
+  return NextResponse.json({ tickets: await getTickets(ctx.evento.id) });
 }

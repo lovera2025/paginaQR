@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ImageUploadField } from "@/components/admin/ImageUploadField";
+import { TiposEntradaPanel } from "@/components/admin/TiposEntradaPanel";
+import { BrandingForm } from "@/components/admin/BrandingForm";
+import { VentasGenerales } from "@/components/admin/VentasGenerales";
+import { getEstiloEntrada } from "@/lib/entradas/estilos";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 import type {
   ActivityLog,
@@ -20,6 +24,7 @@ import {
   EVENTO_ESTADO_LABELS,
 } from "@/lib/evento/estado";
 import {
+  diaCorto,
   formatFecha,
   formatFechaCorta,
   formatPrecio,
@@ -27,7 +32,9 @@ import {
   ticketEstadoLabel,
 } from "@/lib/utils";
 
-type Tab = "resumen" | "compras" | "entradas" | "apariencia" | "actividad" | "historial" | "pagos" | "seguridad";
+type Tab = "resumen" | "tipos" | "compras" | "entradas" | "apariencia" | "marca" | "actividad" | "historial" | "pagos" | "seguridad";
+
+const LS_EVENTO = "admin.eventoId";
 type Toast = { type: "success" | "error"; text: string };
 
 interface SecurityInfo {
@@ -142,6 +149,17 @@ export function AdminDashboard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [activity, setActivity] = useState<ActivityLog[]>([]);
   const [evento, setEvento] = useState<Evento | null>(null);
+  // Copia editable de la fiesta (Apariencia). No se pisa con la actualización en vivo mientras hay cambios.
+  const [draft, setDraftState] = useState<Evento | null>(null);
+  const dirtyRef = useRef(false);
+  const setDraft = (e: Evento) => {
+    dirtyRef.current = true;
+    setDraftState(e);
+  };
+  const [eventos, setEventos] = useState<Evento[]>([]);
+  const [eventoId, setEventoId] = useState<string>("");
+  const [version, setVersion] = useState(0);
+  const [filtroTipo, setFiltroTipo] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -186,20 +204,66 @@ export function AdminDashboard() {
     setTimeout(() => setToast(null), 4000);
   }
 
+  // Fiesta elegida: la guardada en este teléfono o la próxima.
+  useEffect(() => {
+    let guardado = "";
+    try {
+      guardado = localStorage.getItem(LS_EVENTO) ?? "";
+    } catch {
+      /* ignore */
+    }
+    fetch("/api/admin/eventos", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        const lista = (d.eventos ?? []) as Evento[];
+        setEventos(lista);
+        const elegido =
+          lista.find((x) => x.id === guardado)?.id ??
+          lista.find((x) => new Date(x.fecha).getTime() > Date.now() - 12 * 3600 * 1000)?.id ??
+          lista[0]?.id ??
+          "";
+        setEventoId(elegido);
+      });
+  }, []);
+
+  function elegirEvento(id: string) {
+    dirtyRef.current = false;
+    setEventoId(id);
+    setFiltroTipo("");
+    try {
+      localStorage.setItem(LS_EVENTO, id);
+    } catch {
+      /* ignore */
+    }
+  }
+
   const refresh = useCallback(async () => {
+    const lista = await fetch("/api/admin/eventos", { cache: "no-store" }).then((r) => r.json());
+    setEventos(lista.eventos ?? []);
+    setVersion((v) => v + 1);
+    if (!eventoId) {
+      setEvento(null);
+      setStats(null);
+      setOrdenes([]);
+      setTickets([]);
+      return;
+    }
+    const q = `?evento=${encodeURIComponent(eventoId)}`;
     const [s, o, t, a, e] = await Promise.all([
-      fetch("/api/admin/stats").then((r) => r.json()),
-      fetch("/api/admin/ordenes").then((r) => r.json()),
-      fetch("/api/admin/tickets").then((r) => r.json()),
+      fetch(`/api/admin/stats${q}`).then((r) => r.json()),
+      fetch(`/api/admin/ordenes${q}`).then((r) => r.json()),
+      fetch(`/api/admin/tickets${q}`).then((r) => r.json()),
       fetch("/api/admin/activity").then((r) => r.json()),
-      fetch("/api/admin/evento").then((r) => r.json()),
+      fetch(`/api/admin/evento${q}`).then((r) => r.json()),
     ]);
-    setStats(s);
+    setStats(s?.porTipo ? s : null);
     setOrdenes(o.ordenes ?? []);
     setTickets(t.tickets ?? []);
     setActivity(a.activity ?? []);
-    setEvento(e?.id ? { ...e, estado: e.estado ?? "borrador" } : null);
-  }, []);
+    const ev = e?.id ? ({ ...e, estado: e.estado ?? "borrador" } as Evento) : null;
+    setEvento(ev);
+    if (!dirtyRef.current) setDraftState(ev);
+  }, [eventoId]);
 
   useEffect(() => {
     refresh();
@@ -303,7 +367,7 @@ export function AdminDashboard() {
   // async function handleRefund(ordenId: string) { ... }
 
   async function persistEvento(updated: Evento, successMsg?: string) {
-    const res = await fetch("/api/admin/evento", {
+    const res = await fetch(`/api/admin/evento?evento=${encodeURIComponent(updated.id)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated),
@@ -314,23 +378,24 @@ export function AdminDashboard() {
       return false;
     }
     if (successMsg) showToast("success", successMsg);
+    dirtyRef.current = false;
     refresh();
     return true;
   }
 
   async function handleImageUploaded(field: "logoUrl" | "flyerUrl", url: string) {
-    if (!evento) return;
-    const updated = { ...evento, [field]: url };
-    setEvento(updated);
+    if (!draft) return;
+    const updated = { ...draft, [field]: url };
+    setDraft(updated);
     const label = field === "logoUrl" ? "Logo actualizado" : "Flyer actualizado";
     await persistEvento(updated, label);
   }
 
   async function handleSaveEvento(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!evento) return;
+    if (!draft) return;
     setSaving(true);
-    await persistEvento(evento, "Cambios guardados");
+    await persistEvento(draft, "Cambios guardados");
     setSaving(false);
   }
 
@@ -344,7 +409,7 @@ export function AdminDashboard() {
       const res = await fetch("/api/admin/reset-ventas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmacion: resetConfirm }),
+        body: JSON.stringify({ confirmacion: resetConfirm, eventoId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -365,12 +430,12 @@ export function AdminDashboard() {
   ) {
     const messages: Record<typeof accion, string> = {
       abrir_venta:
-        "¿Abrir venta pública? No vas a poder reiniciar ventas después.",
+        "¿Publicar esta fiesta? Va a aparecer en la página y se puede comprar. No vas a poder reiniciar ventas después.",
       pausar:
         "¿Pausar ventas? Nadie podrá comprar nuevo, pero las entradas vendidas siguen válidas.",
       reanudar: "¿Reanudar ventas? La compra pública volverá a estar habilitada.",
       cerrar:
-        "¿Cerrar y archivar este evento? Los datos se guardarán en Historial.",
+        "¿Cerrar y archivar esta fiesta? Sale de la página y los datos quedan en Historial.",
     };
     if (!confirm(messages[accion])) return;
 
@@ -379,7 +444,7 @@ export function AdminDashboard() {
       const res = await fetch("/api/admin/evento/estado", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accion }),
+        body: JSON.stringify({ accion, eventoId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -387,13 +452,17 @@ export function AdminDashboard() {
         return;
       }
       const successMessages: Record<typeof accion, string> = {
-        abrir_venta: "Venta abierta",
+        abrir_venta: "Fiesta publicada",
         pausar: "Ventas pausadas",
         reanudar: "Ventas reanudadas",
-        cerrar: "Evento cerrado y archivado en Historial",
+        cerrar: "Fiesta cerrada y archivada en Historial",
       };
       showToast("success", successMessages[accion]);
       setHistorialItems(null);
+      if (accion === "cerrar") {
+        const resto = eventos.filter((x) => x.id !== eventoId);
+        elegirEvento(resto[0]?.id ?? "");
+      }
       refresh();
     } finally {
       setActionLoading(null);
@@ -438,9 +507,10 @@ export function AdminDashboard() {
       }
       setNuevoOpen(false);
       setNuevoForm(EMPTY_NUEVO);
-      showToast("success", `Evento "${data.evento.nombre}" creado en borrador`);
+      showToast("success", `"${data.evento.nombre}" creada en borrador. Cargá el flyer y los tipos de entrada.`);
       setHistorialItems(null);
-      refresh();
+      elegirEvento(data.evento.id);
+      setTab("tipos");
     } finally {
       setNuevoLoading(false);
     }
@@ -448,7 +518,7 @@ export function AdminDashboard() {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    window.location.reload();
+    window.location.href = "/staff";
   }
 
   async function handleSaveTaloPagos(e: React.FormEvent) {
@@ -637,9 +707,11 @@ export function AdminDashboard() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "resumen", label: "Resumen" },
+    { id: "tipos", label: "Entradas y precios" },
     { id: "compras", label: "Compras" },
-    { id: "entradas", label: "Entradas" },
-    { id: "apariencia", label: "Apariencia" },
+    { id: "entradas", label: "Emitidas" },
+    { id: "apariencia", label: "Fiesta" },
+    { id: "marca", label: "Marca" },
     { id: "actividad", label: "Actividad" },
     { id: "historial", label: "Historial" },
     { id: "pagos", label: "Pagos" },
@@ -647,32 +719,62 @@ export function AdminDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f]">
-      <header className="sticky top-0 z-10 border-b border-white/10 bg-black/80 px-4 py-4 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Admin</h1>
-            <p className="text-xs text-white/40">Actualización en vivo</p>
+    <div className="min-h-screen bg-[#07070b]">
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-noche/90 px-4 py-3 backdrop-blur-md">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <a href="/staff" className="flex shrink-0 items-baseline gap-1.5" aria-label="Menú staff">
+              <span className="font-script text-[28px] leading-none text-oro">Junior</span>
+              <span className="hidden font-display text-[10px] font-extrabold tracking-[0.22em] sm:inline">PANEL</span>
+            </a>
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/12 bg-white/[0.04] px-3 py-1.5 sm:max-w-md">
+              <label htmlFor="fiesta-admin" className="shrink-0 text-[10px] font-semibold tracking-[0.14em] text-white/45">
+                FIESTA
+              </label>
+              <select
+                id="fiesta-admin"
+                value={eventoId}
+                onChange={(e) => elegirEvento(e.target.value)}
+                className="min-w-0 flex-1 truncate bg-transparent py-1 font-display text-sm font-bold text-white outline-none"
+              >
+                {eventos.length === 0 && <option value="">Sin fiestas</option>}
+                {eventos.map((x) => (
+                  <option key={x.id} value={x.id} className="bg-noche">
+                    {diaCorto(x.fecha)} · {x.nombre}
+                    {x.estado === "borrador" ? " (borrador)" : x.estado === "pausado" ? " (pausada)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {evento && (
+              <span className={`hidden shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold sm:inline-block ${estadoBadgeClass(evento.estado)}`}>
+                {EVENTO_ESTADO_LABELS[evento.estado].split(" —")[0]}
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <a
-              href="/scanner"
-              target="_blank"
-              className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
+            <button
+              onClick={() => {
+                setTab("resumen");
+                setNuevoOpen(true);
+              }}
+              className="rounded-lg bg-oro px-3 py-2 text-sm font-bold text-tinta hover:brightness-110"
             >
+              + Nueva fiesta
+            </button>
+            {evento && (
+              <a
+                href={`/fiesta/${evento.slug}`}
+                target="_blank"
+                className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
+              >
+                Ver página
+              </a>
+            )}
+            <a href="/scanner" className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5">
               Scanner
             </a>
-            <a
-              href="/"
-              target="_blank"
-              className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
-            >
-              Ver web
-            </a>
-            <button
-              onClick={logout}
-              className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
-            >
+            <button onClick={logout} className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5">
               Salir
             </button>
           </div>
@@ -686,7 +788,7 @@ export function AdminDashboard() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition ${
-                tab === t.id ? "bg-white text-black" : "text-white/60 hover:text-white"
+                tab === t.id ? "bg-oro text-tinta" : "text-white/60 hover:text-white"
               }`}
             >
               {t.label}
@@ -715,7 +817,7 @@ export function AdminDashboard() {
               <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm text-white/50">Estado del evento</p>
+                    <p className="text-sm text-white/50">{diaCorto(evento.fecha)} · {evento.lugar || "Lugar a confirmar"}</p>
                     <p className="mt-1 text-lg font-bold">{evento.nombre}</p>
                     <span
                       className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${estadoBadgeClass(evento.estado)}`}
@@ -741,7 +843,7 @@ export function AdminDashboard() {
                         disabled={actionLoading === "abrir_venta"}
                         className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500 disabled:opacity-50"
                       >
-                        {actionLoading === "abrir_venta" ? "..." : "Abrir venta pública"}
+                        {actionLoading === "abrir_venta" ? "..." : "Publicar (abrir venta)"}
                       </button>
                     )}
                     {canPausarVentas(evento.estado) && (
@@ -771,15 +873,15 @@ export function AdminDashboard() {
                         disabled={actionLoading === "cerrar"}
                         className="rounded-xl border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/5 disabled:opacity-50"
                       >
-                        {actionLoading === "cerrar" ? "..." : "Cerrar evento"}
+                        {actionLoading === "cerrar" ? "..." : "Cerrar fiesta"}
                       </button>
                     )}
                   </div>
                 </div>
                 {evento.estado === "borrador" && (
                   <p className="mt-4 text-xs text-white/40">
-                    Modo prueba: podés reiniciar ventas para limpiar compras de test.
-                    Al abrir venta pública, reiniciar queda bloqueado.
+                    Borrador: la fiesta no se ve en la página. Podés probarla con &quot;Ver página&quot; y hacer
+                    compras de prueba; después reiniciá ventas y tocá Publicar.
                   </p>
                 )}
                 {evento.estado === "pausado" && (
@@ -792,7 +894,7 @@ export function AdminDashboard() {
             ) : (
               <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-6">
                 <p className="mb-4 text-white/60">
-                  No hay evento activo. Los datos del último evento están en{" "}
+                  No hay fiestas activas. Las anteriores están en{" "}
                   <button
                     className="underline hover:text-white"
                     onClick={() => setTab("historial")}
@@ -805,7 +907,7 @@ export function AdminDashboard() {
                   onClick={() => setNuevoOpen(true)}
                   className="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black hover:bg-white/90"
                 >
-                  + Crear nuevo evento
+                  + Crear nueva fiesta
                 </button>
               </div>
             )}
@@ -854,14 +956,14 @@ export function AdminDashboard() {
             {nuevoOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
                 <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#12121a] p-6">
-                  <h2 className="mb-4 text-lg font-bold">Nuevo evento</h2>
+                  <h2 className="mb-4 text-lg font-bold">Nueva fiesta</h2>
                   <form onSubmit={handleCrearNuevo} className="space-y-4">
                     <div>
-                      <label className="mb-1 block text-sm text-white/60">Nombre del evento</label>
+                      <label className="mb-1 block text-sm text-white/60">Nombre (colegio)</label>
                       <input
                         value={nuevoForm.nombre}
                         onChange={(e) => setNuevoForm({ ...nuevoForm, nombre: e.target.value })}
-                        placeholder="Ej: Fiesta de Promo 2027"
+                        placeholder="Ej: Colegio Secundario San Martín"
                         className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
                         autoFocus
                       />
@@ -878,7 +980,7 @@ export function AdminDashboard() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="mb-1 block text-sm text-white/60">Precio ($)</label>
+                        <label className="mb-1 block text-sm text-white/60">Precio General ($)</label>
                         <input
                           type="number"
                           min="1"
@@ -908,7 +1010,7 @@ export function AdminDashboard() {
                         className="h-4 w-4 accent-white"
                       />
                       <span className="text-sm text-white/80">
-                        Copiar logo, flyer y contacto del evento anterior
+                        Copiar colores, lugar y contacto de la última fiesta
                       </span>
                     </label>
                     {nuevoError && (
@@ -917,7 +1019,7 @@ export function AdminDashboard() {
                       </p>
                     )}
                     <p className="text-xs text-white/40">
-                      Se crea en borrador — podés editar el resto en Apariencia antes de abrir venta.
+                      Se crea en borrador con una entrada General. Después sumás Anticipada/VIP y cargás el flyer.
                     </p>
                     <div className="flex gap-3 pt-2">
                       <button
@@ -932,7 +1034,7 @@ export function AdminDashboard() {
                         disabled={nuevoLoading}
                         className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black disabled:opacity-50"
                       >
-                        {nuevoLoading ? "Creando..." : "Crear evento"}
+                        {nuevoLoading ? "Creando..." : "Crear fiesta"}
                       </button>
                     </div>
                   </form>
@@ -940,29 +1042,68 @@ export function AdminDashboard() {
               </div>
             )}
 
-            {stats && (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  { label: "Vendidas activas", value: stats.vendidasActivas, color: "#ff006e" },
-                  { label: "Recaudado", value: formatPrecio(stats.recaudado), color: "#8338ec" },
-                  { label: "Sin usar", value: stats.sinUsar, color: "#3a86ff" },
-                  { label: "Ya ingresaron", value: stats.ingresaron, color: "#06d6a0" },
-                  { label: "Canceladas", value: stats.canceladas, color: "#ef476f" },
-                  { label: "Reembolsado", value: formatPrecio(stats.reembolsado), color: "#ffd166" },
-                  { label: "Capacidad", value: `${stats.vendidasActivas} / ${stats.capacidad}`, color: "#fff" },
-                  { label: "Disponibles", value: stats.disponibles, color: "#4cc9f0" },
-                ].map((card) => (
-                  <div key={card.label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <p className="text-sm text-white/50">{card.label}</p>
-                    <p className="text-2xl font-black" style={{ color: card.color }}>
-                      {card.value}
-                    </p>
+            {stats && evento && (
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  {[
+                    { label: "Recaudado", value: formatPrecio(stats.recaudado), color: "#f0d389" },
+                    { label: "Vendidas", value: `${stats.vendidasActivas} / ${stats.capacidad}`, color: "#fff" },
+                    { label: "Ya ingresaron", value: stats.ingresaron, color: "#4ade80" },
+                    { label: "Quedan", value: stats.disponibles, color: "#93c5fd" },
+                    { label: "Compras", value: stats.totalOrdenes, color: "#fff" },
+                    { label: "Sin usar", value: stats.sinUsar, color: "#cbd5e1" },
+                    { label: "Canceladas", value: stats.canceladas, color: "#f87171" },
+                    { label: "Reembolsado", value: formatPrecio(stats.reembolsado), color: "#fbbf24" },
+                  ].map((card) => (
+                    <div key={card.label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                      <p className="text-xs text-white/50">{card.label}</p>
+                      <p className="mt-1 font-display text-2xl font-extrabold" style={{ color: card.color }}>
+                        {card.value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {stats.porTipo.length > 0 && (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {stats.porTipo.map((p) => {
+                      const e = getEstiloEntrada({ estilo: p.estilo, colorEvento: evento.colorPrimario, fondoEvento: evento.colorSecundario });
+                      return (
+                        <button
+                          type="button"
+                          key={`${p.tipoEntradaId}-${p.nombre}`}
+                          onClick={() => setTab("tipos")}
+                          className="flex items-center justify-between gap-3 rounded-2xl border p-4 text-left transition hover:brightness-110"
+                          style={{ borderColor: `${e.acento}66`, backgroundColor: `${e.acento}12` }}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-display text-sm font-bold" style={{ color: e.acento }}>{p.nombre}</span>
+                            <span className="text-xs text-white/60">
+                              {p.vendidas} vendidas{p.cupo !== null ? ` de ${p.cupo}` : ""}
+                            </span>
+                          </div>
+                          <span className="font-display text-lg font-extrabold">{formatPrecio(p.recaudado)}</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                ))}
+                )}
               </div>
             )}
+
+            <div className="mt-10">
+              <VentasGenerales version={version} eventoSeleccionado={eventoId} onSeleccionar={elegirEvento} />
+            </div>
           </>
         )}
+
+        {/* ── TIPOS DE ENTRADA ──────────────────────────────── */}
+        {tab === "tipos" && evento && (
+          <TiposEntradaPanel evento={evento} porTipo={stats?.porTipo ?? []} onToast={showToast} onChanged={refresh} />
+        )}
+        {tab === "tipos" && !evento && <p className="text-white/40">Elegí o creá una fiesta.</p>}
+
+        {/* ── MARCA ────────────────────────────────────────── */}
+        {tab === "marca" && <BrandingForm onToast={showToast} />}
 
         {/* ── COMPRAS ────────────────────────────────────── */}
         {tab === "compras" && (
@@ -973,6 +1114,7 @@ export function AdminDashboard() {
                   <th className="p-3">Fecha</th>
                   <th className="p-3">Comprador</th>
                   <th className="p-3">Email</th>
+                  <th className="p-3">Tipo</th>
                   <th className="p-3">Cant.</th>
                   <th className="p-3">Monto</th>
                   <th className="p-3">Estado</th>
@@ -985,6 +1127,7 @@ export function AdminDashboard() {
                     <td className="p-3 text-white/60">{formatFechaCorta(o.createdAt)}</td>
                     <td className="p-3">{o.compradorNombre}</td>
                     <td className="p-3 text-white/60">{o.compradorEmail}</td>
+                    <td className="p-3">{o.tipoNombre}</td>
                     <td className="p-3">{o.cantidad}</td>
                     <td className="p-3">{formatPrecio(o.montoTotal)}</td>
                     <td className="p-3">
@@ -1012,6 +1155,12 @@ export function AdminDashboard() {
                           >
                             Copiar link
                           </button>
+                          <a
+                            href={`/api/ordenes/${o.id}/pdf`}
+                            className="text-left text-xs text-oro hover:underline"
+                          >
+                            Descargar PDF
+                          </a>
                           <button
                             disabled
                             className="cursor-not-allowed text-left text-xs text-red-400 opacity-40"
@@ -1026,7 +1175,7 @@ export function AdminDashboard() {
                 ))}
                 {ordenes.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-white/40">
+                    <td colSpan={8} className="p-8 text-center text-white/40">
                       Sin compras aún
                     </td>
                   </tr>
@@ -1038,12 +1187,28 @@ export function AdminDashboard() {
 
         {/* ── ENTRADAS ────────────────────────────────────── */}
         {tab === "entradas" && (
+          <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-2">
+            {["", ...Array.from(new Set(tickets.map((t) => t.tipoNombre)))].map((tn) => (
+              <button
+                key={tn || "todas"}
+                type="button"
+                onClick={() => setFiltroTipo(tn)}
+                className={`h-9 rounded-full border px-4 text-xs font-semibold ${
+                  filtroTipo === tn ? "border-oro bg-oro/15 text-oro-claro" : "border-white/12 text-white/60"
+                }`}
+              >
+                {tn || "Todas"} ({tn ? tickets.filter((t) => t.tipoNombre === tn).length : tickets.length})
+              </button>
+            ))}
+          </div>
           <div className="overflow-x-auto rounded-2xl border border-white/10">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-white/10 bg-white/5">
                 <tr>
                   <th className="p-3">ID</th>
                   <th className="p-3">Comprador</th>
+                  <th className="p-3">Tipo</th>
                   <th className="p-3">Entrada</th>
                   <th className="p-3">Estado</th>
                   <th className="p-3">Ingreso</th>
@@ -1051,10 +1216,11 @@ export function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {tickets.map((t) => (
+                {tickets.filter((t) => !filtroTipo || t.tipoNombre === filtroTipo).map((t) => (
                   <tr key={t.id} className="border-b border-white/5">
                     <td className="p-3 font-mono text-xs text-white/40">{t.id.slice(0, 8)}…</td>
                     <td className="p-3">{t.compradorNombre}</td>
+                    <td className="p-3">{t.tipoNombre}</td>
                     <td className="p-3">{t.numeroEntrada}/{t.totalEntradas}</td>
                     <td className="p-3">{ticketEstadoLabel(t)}</td>
                     <td className="p-3 text-white/60">
@@ -1075,7 +1241,7 @@ export function AdminDashboard() {
                 ))}
                 {tickets.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-white/40">
+                    <td colSpan={7} className="p-8 text-center text-white/40">
                       Sin entradas aún
                     </td>
                   </tr>
@@ -1083,25 +1249,46 @@ export function AdminDashboard() {
               </tbody>
             </table>
           </div>
+          </div>
         )}
 
         {/* ── APARIENCIA ────────────────────────────────────── */}
-        {tab === "apariencia" && evento && (
+        {tab === "apariencia" && draft && (
           <form onSubmit={handleSaveEvento} className="max-w-2xl space-y-4">
             <Field
-              label="Nombre del evento"
-              value={evento.nombre}
-              onChange={(v) => setEvento({ ...evento, nombre: v })}
+              label="Nombre (colegio)"
+              value={draft.nombre}
+              onChange={(v) => setDraft({ ...draft, nombre: v })}
             />
+            <div>
+              <label className="mb-1 block text-sm text-white/60">Link de la fiesta</label>
+              <div className="flex items-center overflow-hidden rounded-xl border border-white/10 bg-black/40">
+                <span className="shrink-0 pl-4 text-sm text-white/40">/fiesta/</span>
+                <input
+                  value={draft.slug}
+                  onChange={(e) =>
+                    setDraft({ ...draft, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-") })
+                  }
+                  className="min-w-0 flex-1 bg-transparent px-1 py-3 outline-none"
+                />
+              </div>
+              <p className="mt-1 text-xs text-white/40">Solo minúsculas, números y guiones. Es el link que compartís.</p>
+            </div>
+            <Field
+              label="Subtítulo"
+              value={draft.subtitulo}
+              onChange={(v) => setDraft({ ...draft, subtitulo: v })}
+            />
+            <Field label="DJ" value={draft.dj} onChange={(v) => setDraft({ ...draft, dj: v })} />
             <div>
               <label className="mb-1 block text-sm text-white/60">Fecha y hora del evento</label>
               <input
                 type="datetime-local"
-                value={isoToDatetimeLocalAr(evento.fecha)}
+                value={isoToDatetimeLocalAr(draft.fecha)}
                 onChange={(e) =>
-                  setEvento({
-                    ...evento,
-                    fecha: e.target.value ? `${e.target.value}:00-03:00` : evento.fecha,
+                  setDraft({
+                    ...draft,
+                    fecha: e.target.value ? `${e.target.value}:00-03:00` : draft.fecha,
                   })
                 }
                 className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none [color-scheme:dark]"
@@ -1111,8 +1298,8 @@ export function AdminDashboard() {
             <ImageUploadField
               label="Flyer (hero)"
               kind="flyer"
-              eventoId={evento.id}
-              value={evento.flyerUrl}
+              eventoId={draft.id}
+              value={draft.flyerUrl}
               onChange={(url) => handleImageUploaded("flyerUrl", url)}
               onError={(m) => showToast("error", m)}
               previewClassName="h-48 w-full"
@@ -1120,48 +1307,46 @@ export function AdminDashboard() {
             <ImageUploadField
               label="Logo"
               kind="logo"
-              eventoId={evento.id}
-              value={evento.logoUrl}
+              eventoId={draft.id}
+              value={draft.logoUrl}
               onChange={(url) => handleImageUploaded("logoUrl", url)}
               onError={(m) => showToast("error", m)}
               previewClassName="h-24 w-24"
             />
-            <Field label="Color primario (#hex)" value={evento.colorPrimario} onChange={(v) => setEvento({ ...evento, colorPrimario: v })} />
-            <Field label="Color secundario (#hex)" value={evento.colorSecundario} onChange={(v) => setEvento({ ...evento, colorSecundario: v })} />
-            <Field label="Descripción" value={evento.descripcion} onChange={(v) => setEvento({ ...evento, descripcion: v })} multiline />
+            <Field label="Color de acento (#hex, ej. dorado #d4a853)" value={draft.colorPrimario} onChange={(v) => setDraft({ ...draft, colorPrimario: v })} />
+            <Field label="Color de fondo (#hex, oscuro)" value={draft.colorSecundario} onChange={(v) => setDraft({ ...draft, colorSecundario: v })} />
+            <Field label="Descripción" value={draft.descripcion} onChange={(v) => setDraft({ ...draft, descripcion: v })} multiline />
             <Field
               label="Mensaje evento postergado"
-              value={evento.mensajePostergado ?? ""}
-              onChange={(v) => setEvento({ ...evento, mensajePostergado: v })}
+              value={draft.mensajePostergado ?? ""}
+              onChange={(v) => setDraft({ ...draft, mensajePostergado: v })}
               multiline
             />
             <p className="-mt-2 text-xs text-white/40">
-              Se muestra en la landing y en /comprar cuando pausás ventas. Si lo dejás vacío, se
+              Se muestra en la página de la fiesta cuando pausás ventas. Si lo dejás vacío, se
               usa un texto por defecto.
             </p>
-            <Field label="Lugar" value={evento.lugar} onChange={(v) => setEvento({ ...evento, lugar: v })} />
-            <Field label="Google Maps (URL)" value={evento.mapsUrl} onChange={(v) => setEvento({ ...evento, mapsUrl: v })} />
-            <Field label="WhatsApp (54911...)" value={evento.contactoWhatsapp} onChange={(v) => setEvento({ ...evento, contactoWhatsapp: v })} />
-            <Field label="Email contacto" value={evento.contactoEmail} onChange={(v) => setEvento({ ...evento, contactoEmail: v })} />
-            <Field label="Instagram (@usuario)" value={evento.contactoInstagram} onChange={(v) => setEvento({ ...evento, contactoInstagram: v })} />
-            <Field label="Texto footer" value={evento.textoFooter} onChange={(v) => setEvento({ ...evento, textoFooter: v })} multiline />
-            <Field label="Organizador" value={evento.organizadorNombre} onChange={(v) => setEvento({ ...evento, organizadorNombre: v })} />
+            <Field label="Lugar" value={draft.lugar} onChange={(v) => setDraft({ ...draft, lugar: v })} />
+            <Field label="Google Maps (URL)" value={draft.mapsUrl} onChange={(v) => setDraft({ ...draft, mapsUrl: v })} />
+            <Field label="WhatsApp (54911...)" value={draft.contactoWhatsapp} onChange={(v) => setDraft({ ...draft, contactoWhatsapp: v })} />
+            <Field label="Email contacto" value={draft.contactoEmail} onChange={(v) => setDraft({ ...draft, contactoEmail: v })} />
+            <Field label="Instagram (@usuario)" value={draft.contactoInstagram} onChange={(v) => setDraft({ ...draft, contactoInstagram: v })} />
+            <Field label="Texto footer" value={draft.textoFooter} onChange={(v) => setDraft({ ...draft, textoFooter: v })} multiline />
+            <Field label="Organizador" value={draft.organizadorNombre} onChange={(v) => setDraft({ ...draft, organizadorNombre: v })} />
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="mb-1 block text-sm text-white/60">Precio</label>
-                <input
-                  type="number"
-                  value={evento.precio}
-                  onChange={(e) => setEvento({ ...evento, precio: Number(e.target.value) })}
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
-                />
+              <div className="col-span-2 rounded-xl border border-oro/30 bg-oro/[0.06] px-4 py-3 text-sm text-white/70">
+                Los precios se cargan por tipo de entrada en{" "}
+                <button type="button" className="font-semibold text-oro underline" onClick={() => setTab("tipos")}>
+                  Entradas y precios
+                </button>
+                .
               </div>
               <div>
-                <label className="mb-1 block text-sm text-white/60">Capacidad</label>
+                <label className="mb-1 block text-sm text-white/60">Capacidad total (aforo)</label>
                 <input
                   type="number"
-                  value={evento.capacidad}
-                  onChange={(e) => setEvento({ ...evento, capacidad: Number(e.target.value) })}
+                  value={draft.capacidad}
+                  onChange={(e) => setDraft({ ...draft, capacidad: Number(e.target.value) })}
                   className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
                 />
               </div>
@@ -1175,9 +1360,9 @@ export function AdminDashboard() {
             </button>
           </form>
         )}
-        {tab === "apariencia" && !evento && (
+        {tab === "apariencia" && !draft && (
           <div className="text-white/40">
-            No hay evento activo para editar.{" "}
+            No hay una fiesta elegida.{" "}
             <button className="underline" onClick={() => setTab("resumen")}>
               Ir a Resumen
             </button>
