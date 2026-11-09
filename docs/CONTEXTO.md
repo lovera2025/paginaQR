@@ -4,6 +4,7 @@
 > Última actualización: **9 noviembre 2026** — Login/Staff, modo prueba, Próximamente, anulaciones a mano, marca Junior Eventos, tests automáticos, arreglos de seguridad y **Supabase nuevo `junior-eventos` creado y cargado**. Rama `rediseno-recepciones` (sin push, sin deploy). **Objetivo antes de lanzar:** que cualquiera compre → pago aprobado → entradas y PDF disponibles, sin errores. Recién con eso verificado se lanza.
 > **Calendario:** 9 nov = día de pruebas. **10 nov = lanzamiento si todo sale bien** (solo con OK del usuario).
 > **Para retomar en un chat nuevo:** "leé `docs/CONTEXTO.md` y seguimos con lo pendiente" → ir a **Pendiente para retomar**.
+> **Dónde quedamos (cierre 9 nov):** código y docs commiteados en `rediseno-recepciones` (último: `e9ca984`), nada pusheado ni desplegado. `SUPABASE_SERVICE_ROLE_KEY` en `.env.local` todavía **vacía** → la app sigue con la base en memoria. El conector de Supabase de Claude está en la org vieja `paginaqr-eventos`. **Próximo paso: paso 1 de Pendientes (pegar la service_role).**
 
 ## Estado actual (9 nov 2026)
 
