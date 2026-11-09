@@ -6,19 +6,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { IconCandado, IconFlecha } from "@/components/publico/iconos";
 import { MARCA_ISOTIPO } from "@/components/publico/Marca";
+import { destinoPermitido } from "@/lib/auth/destino";
 
 type Rol = "admin" | "scanner";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
-
-function destinoPermitido(next: string | null, rol: Rol): string | null {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) return null;
-  if (next.startsWith("/admin")) return rol === "admin" ? next : null;
-  if (next.startsWith("/scanner")) return next;
-  return null;
 }
 
 function MarcaStaff() {
