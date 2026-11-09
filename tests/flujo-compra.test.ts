@@ -92,11 +92,15 @@ describe("compra → pago aprobado → entradas", () => {
     });
     expect(r).toEqual({ error: "Solo quedan 3 entradas Anticipada" });
 
-    // Dos compras pendientes a la vez que juntas pasan el cupo: la segunda no se aprueba.
+    // La primera compra (sin pagar) reserva: la segunda ya no puede tomar esas entradas.
     const a = await comprar(ANTICIPADA, 2);
+    await expect(comprar(ANTICIPADA, 2)).rejects.toThrow("Solo quedan 1 entradas Anticipada");
+
+    // Si la reserva vence y otra compra se queda con el lugar, al aprobar se vuelve a controlar el cupo.
+    vi.setSystemTime(new Date(Date.now() + 16 * 60_000));
     const b = await comprar(ANTICIPADA, 2);
-    expect("orden" in (await approveOrden(a.id))).toBe(true);
-    expect(await approveOrden(b.id)).toEqual({ error: "Cupo Anticipada agotado" });
+    expect("orden" in (await approveOrden(b.id))).toBe(true);
+    expect(await approveOrden(a.id)).toEqual({ error: "Cupo Anticipada agotado", sinCupo: true });
   });
 
   it("no deja comprar tipos ni fiestas en próximamente", async () => {

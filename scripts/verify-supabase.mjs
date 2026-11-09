@@ -85,6 +85,17 @@ try {
     console.log("✅ Migración de modo prueba / anulaciones aplicada");
   }
 
+  // Columna nueva (migración 2026_11_reservas_y_problemas.sql)
+  const probRes = await fetch(`${url}/rest/v1/ordenes?select=problema&limit=0`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+  });
+  if (!probRes.ok) {
+    console.log("❌ Falta correr supabase/migrations/2026_11_reservas_y_problemas.sql");
+    ok = false;
+  } else {
+    console.log("✅ Migración de reservas / pagos sin cupo aplicada");
+  }
+
   const eventoRes = await fetch(`${url}/rest/v1/eventos?select=slug,estado&order=fecha`, {
     headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
   });

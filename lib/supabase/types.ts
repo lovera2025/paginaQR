@@ -63,6 +63,8 @@ export interface OrdenRow {
   email_sent_at: string | null;
   modo_pago: string | null;
   monto_reembolsado: number | string | null;
+  /** Columna de la migración 2026_11_reservas_y_problemas.sql (puede no existir todavía). */
+  problema?: string | null;
 }
 
 export interface TicketRow {

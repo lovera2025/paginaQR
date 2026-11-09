@@ -23,7 +23,7 @@ function ExitoContent() {
   const paymentId = searchParams.get("payment_id") || searchParams.get("collection_id");
   const isMpReturn = metodo === "mp" || Boolean(paymentId);
   const [orden, setOrden] = useState<OrdenConEvento | null>(null);
-  const [estado, setEstado] = useState<"cargando" | "pendiente" | "aprobado" | "rechazado" | "error">("cargando");
+  const [estado, setEstado] = useState<"cargando" | "pendiente" | "aprobado" | "rechazado" | "sin_cupo" | "error">("cargando");
   const [mensaje, setMensaje] = useState("");
 
   const sincronizar = useCallback(async () => {
@@ -66,6 +66,10 @@ function ExitoContent() {
           setEstado("rechazado");
           return;
         }
+        if (r.orden.problema === "pago_sin_cupo") {
+          setEstado("sin_cupo");
+          return;
+        }
         setEstado("pendiente");
         await new Promise((res) => setTimeout(res, 3000));
       }
@@ -100,6 +104,41 @@ function ExitoContent() {
         </p>
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-oro" />
         <p className="text-[11px] text-white/40">No cierres esta pantalla. Las entradas solo se liberan con el pago confirmado.</p>
+      </div>
+    );
+  }
+
+  if (estado === "sin_cupo" && orden) {
+    const codigo = orden.id.slice(0, 8).toUpperCase();
+    const wa = orden.contacto?.whatsapp
+      ? whatsappHref(
+          orden.contacto.whatsapp,
+          `Hola! Pagué la compra ${codigo} (${orden.cantidad} × ${orden.tipoNombre}${orden.evento ? ` · ${orden.evento.nombre}` : ""}) a nombre de ${orden.compradorNombre} y se agotaron las entradas. ¿Cómo sigo con la devolución?`
+        )
+      : null;
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center gap-4 pt-16 text-center">
+        <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-amber-400/60 bg-amber-400/10 font-display text-3xl text-amber-300">
+          !
+        </span>
+        <h1 className="font-display text-2xl font-extrabold">Se agotaron mientras pagabas</h1>
+        <p className="text-sm leading-relaxed text-white/75">
+          Tu pago entró, pero justo se vendieron las últimas entradas de{" "}
+          <strong className="text-white">{orden.tipoNombre}</strong>. No te emitimos entradas y{" "}
+          <strong className="text-white">te devolvemos la plata</strong>: ya le avisamos al organizador.
+        </p>
+        <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm">
+          Tu código de compra: <strong className="font-mono tracking-[0.12em] text-oro-claro">{codigo}</strong>
+        </p>
+        {wa && (
+          <a href={wa} target="_blank" rel="noopener noreferrer" className="btn-oro h-12 px-6 text-sm">
+            <IconWhatsapp size={18} />
+            Escribinos por WhatsApp
+          </a>
+        )}
+        <Link href={orden.evento ? `/fiesta/${orden.evento.slug}` : "/"} className="text-sm text-white/65 underline hover:text-white">
+          Ver si quedan otras entradas
+        </Link>
       </div>
     );
   }

@@ -1,10 +1,24 @@
 import { NextResponse } from "next/server";
 import { createOrdenPendiente } from "@/lib/db";
+import { crearLimite, ipDe } from "@/lib/limite";
 import { getModoPagos } from "@/lib/payments/modo";
 
 export const dynamic = "force-dynamic";
 
+// Cada compra sin pagar guarda entradas unos minutos: se limita cuántas se pueden iniciar por IP.
+// Generoso porque en datos móviles mucha gente comparte la misma IP.
+const compras = crearLimite("checkout", 15, 10 * 60 * 1000);
+
 export async function POST(request: Request) {
+  const ip = ipDe(request);
+  if (compras.bloqueado(ip)) {
+    return NextResponse.json(
+      { error: "Hiciste muchos intentos seguidos. Esperá unos minutos y probá de nuevo." },
+      { status: 429 }
+    );
+  }
+  compras.sumar(ip);
+
   const body = await request.json().catch(() => ({}));
   const eventoId = String(body.eventoId ?? "").trim();
   const tipoEntradaId = String(body.tipoEntradaId ?? "").trim();

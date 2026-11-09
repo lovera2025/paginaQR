@@ -3,6 +3,7 @@ import { getEventoById, getOrden, setOrdenPaymentId } from "@/lib/db";
 import { createTaloPaymentForOrden } from "@/lib/talo/payments";
 
 import { isPaymentMethodAvailable } from "@/lib/payments/methods";
+import { MENSAJE_RESERVA_VENCIDA, reservaVencida } from "@/lib/payments/reserva";
 
 export async function POST(request: Request) {
   if (!(await isPaymentMethodAvailable("talo"))) {
@@ -20,6 +21,10 @@ export async function POST(request: Request) {
   }
   if (orden.estado !== "pendiente") {
     return NextResponse.json({ error: "Esta orden ya fue procesada" }, { status: 400 });
+  }
+  // Si ya tiene una transferencia iniciada se le vuelven a mostrar los datos; una nueva solo dentro de la reserva.
+  if (!orden.paymentId && reservaVencida(orden)) {
+    return NextResponse.json({ error: MENSAJE_RESERVA_VENCIDA, vencida: true }, { status: 410 });
   }
 
   const evento = await getEventoById(orden.eventoId);

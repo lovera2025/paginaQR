@@ -233,24 +233,69 @@ function contarVendidas(tickets: Ticket[]): Map<string, number> {
   return map;
 }
 
+// ─── Reservas: una compra sin pagar guarda su lugar un rato ──────────────
+
+/**
+ * Minutos que una compra sin pagar guarda sus entradas. Es más largo que el link de pago
+ * para que un pago empezado a último momento termine dentro de la reserva.
+ */
+export const RESERVA_MINUTOS = 15;
+/** Minutos desde la compra en los que se puede iniciar el pago con Mercado Pago. */
+export const LINK_PAGO_MINUTOS = 10;
+
+export interface Reserva {
+  tipoEntradaId: string | null;
+  cantidad: number;
+}
+
+/** Compras pendientes que todavía guardan lugar (las que tuvieron un problema de pago no). */
+export function reservasVigentes(
+  ordenes: Pick<Orden, "estado" | "createdAt" | "tipoEntradaId" | "cantidad" | "problema">[],
+  now: Date = new Date()
+): Reserva[] {
+  const desde = now.getTime() - RESERVA_MINUTOS * 60_000;
+  return ordenes
+    .filter((o) => o.estado === "pendiente" && !o.problema && new Date(o.createdAt).getTime() > desde)
+    .map((o) => ({ tipoEntradaId: o.tipoEntradaId, cantidad: o.cantidad }));
+}
+
+/** Pasado este momento ya no se puede empezar a pagar la compra (hay que volver a elegir). */
+export function linkPagoVenceEl(orden: Pick<Orden, "createdAt">): Date {
+  return new Date(new Date(orden.createdAt).getTime() + LINK_PAGO_MINUTOS * 60_000);
+}
+
+function contarReservadas(reservas: Reserva[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const r of reservas) {
+    const key = r.tipoEntradaId ?? "";
+    map.set(key, (map.get(key) ?? 0) + r.cantidad);
+  }
+  return map;
+}
+
 /**
  * Calcula, para cada tipo, si se puede comprar ahora y cuánto queda.
  * `tickets` = todos los tickets de la fiesta (se ignoran los cancelados).
+ * `reservas` = compras sin pagar recientes: ocupan lugar mientras dura la reserva.
  */
 export function evaluarTipos(
   evento: Evento,
   tipos: TipoEntrada[],
   tickets: Ticket[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  reservas: Reserva[] = []
 ): TipoEntradaDisponible[] {
   const vendidasPorTipo = contarVendidas(tickets);
+  const reservadasPorTipo = contarReservadas(reservas);
   const activosEvento = tickets.filter((t) => !t.cancelado).length;
-  const restanteEvento = Math.max(0, evento.capacidad - activosEvento);
+  const reservadasEvento = reservas.reduce((s, r) => s + r.cantidad, 0);
+  const restanteEvento = Math.max(0, evento.capacidad - activosEvento - reservadasEvento);
   const fiestaProx = fiestaEnProximamente(evento, now);
 
   return ordenarTipos(tipos).map((tipo) => {
     const vendidas = vendidasPorTipo.get(tipo.id) ?? 0;
-    const restanteTipo = tipo.cupo === null ? Infinity : Math.max(0, tipo.cupo - vendidas);
+    const ocupadas = vendidas + (reservadasPorTipo.get(tipo.id) ?? 0);
+    const restanteTipo = tipo.cupo === null ? Infinity : Math.max(0, tipo.cupo - ocupadas);
     const disponibles = Math.min(restanteEvento, restanteTipo);
 
     let fase: FaseTipo = "venta";
@@ -309,14 +354,15 @@ export function buildCatalogo(
   evento: Evento,
   tipos: TipoEntrada[],
   tickets: Ticket[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  reservas: Reserva[] = []
 ): EventoCatalogo {
-  const evaluados = evaluarTipos(evento, tipos, tickets, now).filter((t) => t.activo);
+  const evaluados = evaluarTipos(evento, tipos, tickets, now, reservas).filter((t) => t.activo);
   const comprables = evaluados.filter((t) => t.comprable);
   const conPrecioVisible = evaluados.filter((t) => t.fase !== "proximamente");
   const base = comprables.length ? comprables : conPrecioVisible;
   const precioDesde = base.length ? Math.min(...base.map((t) => t.precio)) : null;
-  const activos = tickets.filter((t) => !t.cancelado).length;
+  const activos = tickets.filter((t) => !t.cancelado).length + reservas.reduce((s, r) => s + r.cantidad, 0);
   const anticipada = comprables.find((t) => t.estilo === "anticipada" && t.ventaHasta);
 
   const fiestaProx = fiestaEnProximamente(evento, now);

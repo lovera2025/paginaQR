@@ -7,6 +7,7 @@ import type {
   Evento,
   ModoPago,
   NuevoEventoInput,
+  OrdenProblema,
   PaymentMethod,
   TipoEntradaInput,
 } from "@/types";
@@ -142,6 +143,14 @@ export async function setOrdenPaymentId(ordenId: string, paymentId: string, paym
   return sb()
     ? supabase.setOrdenPaymentId(ordenId, paymentId, paymentMethod)
     : mock.setOrdenPaymentId(ordenId, paymentId, paymentMethod);
+}
+
+export async function marcarProblemaOrden(ordenId: string, problema: OrdenProblema) {
+  return sb() ? supabase.marcarProblemaOrden(ordenId, problema) : mock.marcarProblemaOrden(ordenId, problema);
+}
+
+export async function cerrarPagoSinCupo(ordenId: string) {
+  return sb() ? supabase.cerrarPagoSinCupo(ordenId) : mock.cerrarPagoSinCupo(ordenId);
 }
 
 export async function rejectOrden(ordenId: string) {

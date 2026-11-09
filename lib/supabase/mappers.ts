@@ -153,6 +153,7 @@ export function mapOrden(row: OrdenRow): Orden {
     emailSentAt: row.email_sent_at ?? null,
     modoPago: toModoPago(row.modo_pago),
     montoReembolsado: Number(row.monto_reembolsado ?? 0) || 0,
+    problema: row.problema === "pago_sin_cupo" ? "pago_sin_cupo" : null,
   };
 }
 

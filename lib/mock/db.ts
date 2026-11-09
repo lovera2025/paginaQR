@@ -8,6 +8,7 @@ import {
   fiestaEnProximamente,
   horaAr,
   ordenarTipos,
+  reservasVigentes,
   uniqueSlug,
   validarCompraTipo,
   validarDatosComprador,
@@ -23,6 +24,7 @@ import type {
   ModoPago,
   NuevoEventoInput,
   Orden,
+  OrdenProblema,
   PaymentMethod,
   Ticket,
   TipoEntrada,
@@ -79,6 +81,13 @@ function ticketsDe(eventoId: string): Ticket[] {
   return getStore().tickets.filter((t) => t.eventoId === eventoId);
 }
 
+function reservasDe(eventoId: string, now: Date) {
+  return reservasVigentes(
+    getStore().ordenes.filter((o) => o.eventoId === eventoId),
+    now
+  );
+}
+
 // ─── Eventos ─────────────────────────────────────────────────────────────
 
 export function getEventosPublicados(): Evento[] {
@@ -101,11 +110,14 @@ export function getEventoBySlug(slug: string): Evento | null {
 
 export function getCatalogo(): EventoCatalogo[] {
   const store = getStore();
+  const now = new Date();
   return getEventosPublicados().map((ev) =>
     buildCatalogo(
       ev,
       store.tipos.filter((t) => t.eventoId === ev.id),
-      ticketsDe(ev.id)
+      ticketsDe(ev.id),
+      now,
+      reservasDe(ev.id, now)
     )
   );
 }
@@ -113,10 +125,13 @@ export function getCatalogo(): EventoCatalogo[] {
 export function getEventoCatalogo(eventoId: string): EventoCatalogo | null {
   const ev = getEventoById(eventoId);
   if (!ev) return null;
+  const now = new Date();
   return buildCatalogo(
     ev,
     getStore().tipos.filter((t) => t.eventoId === ev.id),
-    ticketsDe(ev.id)
+    ticketsDe(ev.id),
+    now,
+    reservasDe(ev.id, now)
   );
 }
 
@@ -145,7 +160,8 @@ export function getTiposByEvento(eventoId: string): TipoEntrada[] {
 export function getTiposDisponibles(eventoId: string): TipoEntradaDisponible[] {
   const ev = getEventoById(eventoId);
   if (!ev) return [];
-  return evaluarTipos(ev, getTiposByEvento(eventoId), ticketsDe(eventoId));
+  const now = new Date();
+  return evaluarTipos(ev, getTiposByEvento(eventoId), ticketsDe(eventoId), now, reservasDe(eventoId, now));
 }
 
 export function getTipoById(tipoId: string): TipoEntrada | null {
@@ -229,9 +245,32 @@ export function createOrdenPendiente(input: {
     emailSentAt: null,
     modoPago: null,
     montoReembolsado: 0,
+    problema: null,
   };
   store.ordenes.unshift(orden);
   return { orden };
+}
+
+export function cerrarPagoSinCupo(ordenId: string): { orden: Orden } | { error: string } {
+  const orden = getStore().ordenes.find((o) => o.id === ordenId);
+  if (!orden) return { error: "Compra no encontrada" };
+  if (orden.estado !== "pendiente" || orden.problema !== "pago_sin_cupo") {
+    return { error: "Esta compra no es un pago sin cupo pendiente de devolver" };
+  }
+  orden.estado = "reembolsado";
+  orden.montoReembolsado = orden.montoTotal;
+  return { orden };
+}
+
+export function marcarProblemaOrden(
+  ordenId: string,
+  problema: OrdenProblema
+): { ok: true; nuevo: boolean } | { error: string } {
+  const orden = getStore().ordenes.find((o) => o.id === ordenId);
+  if (!orden) return { error: "Orden no encontrada" };
+  if (orden.problema) return { ok: true, nuevo: false };
+  orden.problema = problema;
+  return { ok: true, nuevo: true };
 }
 
 export function getOrdenByPaymentId(paymentId: string): Orden | null {
@@ -256,7 +295,7 @@ export async function approveOrden(
   paymentId?: string,
   paymentMethod?: PaymentMethod,
   modoPago: ModoPago = "simulado"
-): Promise<{ orden: Orden; tickets: Ticket[]; nueva: boolean } | { error: string }> {
+): Promise<{ orden: Orden; tickets: Ticket[]; nueva: boolean } | { error: string; sinCupo?: boolean }> {
   const store = getStore();
   const orden = store.ordenes.find((o) => o.id === ordenId);
   if (!orden) return { error: "Orden no encontrada" };
@@ -268,18 +307,19 @@ export async function approveOrden(
   const evento = getEventoById(orden.eventoId);
   if (!evento) return { error: "Fiesta no encontrada" };
   const tickets = ticketsDe(evento.id).filter((t) => !t.cancelado);
-  if (tickets.length + orden.cantidad > evento.capacidad) return { error: "Capacidad agotada" };
+  if (tickets.length + orden.cantidad > evento.capacidad) return { error: "Capacidad agotada", sinCupo: true };
 
   const tipo = orden.tipoEntradaId ? getTipoById(orden.tipoEntradaId) : null;
   if (tipo?.cupo != null) {
     const vendidasTipo = tickets.filter((t) => t.tipoEntradaId === tipo.id).length;
-    if (vendidasTipo + orden.cantidad > tipo.cupo) return { error: `Cupo ${tipo.nombre} agotado` };
+    if (vendidasTipo + orden.cantidad > tipo.cupo) return { error: `Cupo ${tipo.nombre} agotado`, sinCupo: true };
   }
 
   orden.estado = "aprobado";
   orden.paymentId = paymentId ?? `mock_${orden.id.slice(0, 8)}`;
   if (paymentMethod) orden.paymentMethod = paymentMethod;
   orden.modoPago = modoPago;
+  orden.problema = null;
 
   const now = new Date().toISOString();
   const nuevos: Ticket[] = Array.from({ length: orden.cantidad }, (_, i) => ({

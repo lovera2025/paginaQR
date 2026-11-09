@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS ordenes (
   email_sent_at TIMESTAMPTZ,
   modo_pago TEXT CHECK (modo_pago IS NULL OR modo_pago IN ('simulado', 'sandbox', 'produccion')),
   monto_reembolsado NUMERIC(10,2) NOT NULL DEFAULT 0,
+  problema TEXT CHECK (problema IS NULL OR problema IN ('pago_sin_cupo')),
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -149,6 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_tickets_orden ON tickets(orden_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_estado ON tickets(cancelado, usado);
 CREATE INDEX IF NOT EXISTS idx_ordenes_estado ON ordenes(estado);
 CREATE INDEX IF NOT EXISTS idx_ordenes_evento ON ordenes(evento_id);
+CREATE INDEX IF NOT EXISTS idx_ordenes_evento_estado_fecha ON ordenes(evento_id, estado, created_at);
 
 -- ─── Datos iniciales ──────────────────────────────────────────────────────
 -- Las fiestas se cargan con supabase/seeds/recepciones_2026.sql (o desde el admin).

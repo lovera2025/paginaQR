@@ -136,7 +136,14 @@ export interface Orden {
   modoPago: ModoPago | null;
   /** Plata devuelta a mano por anulaciones. */
   montoReembolsado: number;
+  /**
+   * Algo salió mal con el pago y hay que resolverlo a mano.
+   * `pago_sin_cupo` = el pago entró pero ya no quedaban entradas (hay que devolver la plata).
+   */
+  problema?: OrdenProblema | null;
 }
+
+export type OrdenProblema = "pago_sin_cupo";
 
 export interface Ticket {
   id: string;

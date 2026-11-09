@@ -400,6 +400,28 @@ export function AdminDashboard() {
     }
   }
 
+  async function handleDevueltaSinCupo(o: Orden) {
+    if (
+      !confirm(
+        `¿Ya le devolviste ${formatPrecio(o.montoTotal)} a ${o.compradorNombre}? La compra queda cerrada como devuelta.`
+      )
+    )
+      return;
+    setActionLoading(o.id);
+    try {
+      const res = await fetch(`/api/admin/ordenes/${o.id}/devuelta`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast("error", data.error ?? "No se pudo guardar");
+        return;
+      }
+      showToast("success", "Devolución registrada");
+      refresh();
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   async function persistEvento(updated: Evento, successMsg?: string) {
     const res = await fetch(`/api/admin/evento?evento=${encodeURIComponent(updated.id)}`, {
       method: "PUT",
@@ -1165,6 +1187,16 @@ export function AdminDashboard() {
         {tab === "marca" && <BrandingForm onToast={showToast} />}
 
         {/* ── COMPRAS ────────────────────────────────────── */}
+        {tab === "compras" && ordenes.some((o) => o.problema === "pago_sin_cupo" && o.estado === "pendiente") && (
+          <div role="alert" className="mb-4 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+            <p className="font-bold text-red-300">Hay pagos que entraron sin entradas disponibles</p>
+            <p className="mt-1 text-red-200/90">
+              Se vendieron las últimas mientras esas personas pagaban. No se les emitió entrada: devolveles la plata desde
+              Mercado Pago o la cuenta de Talo y avisales por mail o WhatsApp. Están marcadas abajo con{" "}
+              <strong>PAGO SIN CUPO</strong>.
+            </p>
+          </div>
+        )}
         {tab === "compras" && (
           <div className="overflow-x-auto rounded-2xl border border-white/10">
             <table className="w-full text-left text-sm">
@@ -1210,9 +1242,24 @@ export function AdminDashboard() {
                         <span className="rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] text-yellow-300">anulación parcial</span>
                       )}
                       <ChipModo modo={o.modoPago} />
+                      {o.problema === "pago_sin_cupo" && o.estado === "pendiente" && (
+                        <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] text-white">
+                          PAGO SIN CUPO · DEVOLVER
+                        </span>
+                      )}
                       </div>
                     </td>
                     <td className="p-3">
+                      {o.estado === "pendiente" && o.problema === "pago_sin_cupo" && (
+                        <button
+                          type="button"
+                          disabled={actionLoading === o.id}
+                          onClick={() => handleDevueltaSinCupo(o)}
+                          className="text-left text-xs font-semibold text-red-300 hover:underline disabled:opacity-50"
+                        >
+                          Ya le devolví la plata
+                        </button>
+                      )}
                       {o.estado === "aprobado" && (
                         <div className="flex flex-col gap-1">
                           <button

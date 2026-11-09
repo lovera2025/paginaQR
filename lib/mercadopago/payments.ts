@@ -6,6 +6,7 @@ import {
   rejectOrden,
 } from "@/lib/db";
 import { mpFetch } from "@/lib/mercadopago/client";
+import { registrarPagoSinCupo } from "@/lib/payments/problemas";
 import type { MpPayment, MpPaymentSearchResponse } from "@/lib/mercadopago/types";
 
 export async function getMpPayment(
@@ -62,6 +63,11 @@ export async function processMpPayment(
     }
     const result = await approveOrden(ordenId, mpPaymentId, "mp", modo);
     if ("error" in result) {
+      if (result.sinCupo) {
+        // Ya está resuelto del lado nuestro (queda para devolver): no hace falta que MP reintente.
+        await registrarPagoSinCupo(orden, ref, result.error);
+        return { ok: true };
+      }
       await registrarActividad("pago", `${ref} → pago aprobado pero no se pudieron emitir las entradas: ${result.error}`);
       return { error: result.error };
     }

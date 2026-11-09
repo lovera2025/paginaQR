@@ -7,6 +7,7 @@ import {
   rejectOrden,
 } from "@/lib/db";
 import { getAppUrl } from "@/lib/config";
+import { registrarPagoSinCupo } from "@/lib/payments/problemas";
 import { getTaloClient, getTaloWebhookUrl } from "@/lib/talo/client";
 import type { Evento, Orden } from "@/types";
 
@@ -167,6 +168,10 @@ export async function processTaloPayment(
   if (payment.payment_status === "SUCCESS" || payment.payment_status === "OVERPAID") {
     const result = await approveOrden(ordenId, paymentId, "talo");
     if ("error" in result) {
+      if (result.sinCupo) {
+        await registrarPagoSinCupo(orden, ref, result.error);
+        return { ok: true };
+      }
       await registrarActividad("pago", `${ref} → transferencia acreditada pero no se pudieron emitir las entradas: ${result.error}`);
       return { error: result.error };
     }

@@ -19,11 +19,16 @@ import {
   fiestaEnProximamente,
   horaAr,
   ordenarTipos,
+  RESERVA_MINUTOS,
+  reservasVigentes,
   uniqueSlug,
   validarCompraTipo,
   validarDatosComprador,
+  type Reserva,
 } from "@/lib/entradas/tipos";
 import { SEED_BRANDING } from "@/lib/mock/seed";
+import type { OrdenRow, TicketRow } from "./types";
+import { traerTodo } from "./paginar";
 import type {
   ActivityLog,
   AdminStats,
@@ -34,6 +39,7 @@ import type {
   ModoPago,
   NuevoEventoInput,
   Orden,
+  OrdenProblema,
   PaymentMethod,
   Ticket,
   TipoEntrada,
@@ -92,19 +98,47 @@ async function getTiposDeEventos(eventoIds: string[]): Promise<TipoEntrada[]> {
 
 async function getTicketsDeEventos(eventoIds: string[]): Promise<Ticket[]> {
   if (eventoIds.length === 0) return [];
-  const { data } = await db().from("tickets").select("*").in("evento_id", eventoIds);
-  return (data ?? []).map(mapTicket);
+  const rows = await traerTodo<TicketRow>((desde, hasta) =>
+    db().from("tickets").select("*").in("evento_id", eventoIds).order("id").range(desde, hasta)
+  );
+  return rows.map(mapTicket);
+}
+
+/** Compras sin pagar de los últimos minutos: guardan lugar mientras dura la reserva. */
+async function getReservasDeEventos(eventoIds: string[]): Promise<(Reserva & { eventoId: string })[]> {
+  if (eventoIds.length === 0) return [];
+  const now = new Date();
+  const desde = new Date(now.getTime() - RESERVA_MINUTOS * 60_000).toISOString();
+  // select("*"): si la columna `problema` todavía no existe, la consulta igual funciona.
+  const rows = await traerTodo<OrdenRow>((a, b) =>
+    db()
+      .from("ordenes")
+      .select("*")
+      .in("evento_id", eventoIds)
+      .eq("estado", "pendiente")
+      .gte("created_at", desde)
+      .order("id")
+      .range(a, b)
+  );
+  const ordenes = rows.map(mapOrden);
+  return ordenes.flatMap((o) => reservasVigentes([o], now).map((r) => ({ ...r, eventoId: o.eventoId })));
 }
 
 export async function getCatalogo(): Promise<EventoCatalogo[]> {
   const eventos = await getEventosPublicados();
   const ids = eventos.map((e) => e.id);
-  const [tipos, tickets] = await Promise.all([getTiposDeEventos(ids), getTicketsDeEventos(ids)]);
+  const [tipos, tickets, reservas] = await Promise.all([
+    getTiposDeEventos(ids),
+    getTicketsDeEventos(ids),
+    getReservasDeEventos(ids),
+  ]);
   return eventos.map((ev) =>
     buildCatalogo(
       ev,
       tipos.filter((t) => t.eventoId === ev.id),
-      tickets.filter((t) => t.eventoId === ev.id)
+      tickets.filter((t) => t.eventoId === ev.id),
+      new Date(),
+      reservas.filter((r) => r.eventoId === ev.id)
     )
   );
 }
@@ -112,8 +146,12 @@ export async function getCatalogo(): Promise<EventoCatalogo[]> {
 export async function getEventoCatalogo(eventoId: string): Promise<EventoCatalogo | null> {
   const ev = await getEventoById(eventoId);
   if (!ev) return null;
-  const [tipos, tickets] = await Promise.all([getTiposDeEventos([ev.id]), getTicketsDeEventos([ev.id])]);
-  return buildCatalogo(ev, tipos, tickets);
+  const [tipos, tickets, reservas] = await Promise.all([
+    getTiposDeEventos([ev.id]),
+    getTicketsDeEventos([ev.id]),
+    getReservasDeEventos([ev.id]),
+  ]);
+  return buildCatalogo(ev, tipos, tickets, new Date(), reservas);
 }
 
 export async function updateEvento(
@@ -154,8 +192,12 @@ export async function getTiposByEvento(eventoId: string): Promise<TipoEntrada[]>
 export async function getTiposDisponibles(eventoId: string): Promise<TipoEntradaDisponible[]> {
   const ev = await getEventoById(eventoId);
   if (!ev) return [];
-  const [tipos, tickets] = await Promise.all([getTiposDeEventos([eventoId]), getTicketsDeEventos([eventoId])]);
-  return evaluarTipos(ev, tipos, tickets);
+  const [tipos, tickets, reservas] = await Promise.all([
+    getTiposDeEventos([eventoId]),
+    getTicketsDeEventos([eventoId]),
+    getReservasDeEventos([eventoId]),
+  ]);
+  return evaluarTipos(ev, tipos, tickets, new Date(), reservas);
 }
 
 export async function getTipoById(tipoId: string): Promise<TipoEntrada | null> {
@@ -277,7 +319,7 @@ export async function approveOrden(
   paymentId?: string,
   paymentMethod?: PaymentMethod,
   modoPago: ModoPago = "simulado"
-): Promise<{ orden: Orden; tickets: Ticket[]; nueva: boolean } | { error: string }> {
+): Promise<{ orden: Orden; tickets: Ticket[]; nueva: boolean } | { error: string; sinCupo?: boolean }> {
   const { data: ordenRow, error: ordenError } = await db()
     .from("ordenes")
     .select("*")
@@ -294,12 +336,12 @@ export async function approveOrden(
   const evento = await getEventoById(orden.eventoId);
   if (!evento) return { error: "Fiesta no encontrada" };
   const activos = (await getTicketsDeEventos([evento.id])).filter((t) => !t.cancelado);
-  if (activos.length + orden.cantidad > evento.capacidad) return { error: "Capacidad agotada" };
+  if (activos.length + orden.cantidad > evento.capacidad) return { error: "Capacidad agotada", sinCupo: true };
 
   const tipo = orden.tipoEntradaId ? await getTipoById(orden.tipoEntradaId) : null;
   if (tipo?.cupo != null) {
     const vendidasTipo = activos.filter((t) => t.tipoEntradaId === tipo.id).length;
-    if (vendidasTipo + orden.cantidad > tipo.cupo) return { error: `Cupo ${tipo.nombre} agotado` };
+    if (vendidasTipo + orden.cantidad > tipo.cupo) return { error: `Cupo ${tipo.nombre} agotado`, sinCupo: true };
   }
 
   const resolvedPaymentId = paymentId ?? `mock_${orden.id.slice(0, 8)}`;
@@ -313,6 +355,8 @@ export async function approveOrden(
       mp_payment_id: resolvedPaymentId,
       payment_method: resolvedMethod,
       modo_pago: modoPago,
+      // Si antes quedó marcada sin cupo y ahora se pudo emitir, el problema se resolvió.
+      ...(orden.problema ? { problema: null } : {}),
     })
     .eq("id", ordenId)
     .eq("estado", "pendiente")
@@ -368,6 +412,41 @@ export async function rejectOrden(ordenId: string): Promise<{ orden: Orden } | {
     .maybeSingle();
   if (error) return { error: error.message };
   if (!data) return { error: "Orden no encontrada o no está pendiente" };
+  return { orden: mapOrden(data) };
+}
+
+/** Deja anotado en la compra que hay que resolverla a mano (ej. pago que entró sin cupo). */
+export async function marcarProblemaOrden(
+  ordenId: string,
+  problema: OrdenProblema
+): Promise<{ ok: true; nuevo: boolean } | { error: string }> {
+  const { data, error } = await db()
+    .from("ordenes")
+    .update({ problema })
+    .eq("id", ordenId)
+    .is("problema", null)
+    .select("id")
+    .maybeSingle();
+  if (error) return { error: error.message };
+  return { ok: true, nuevo: Boolean(data) };
+}
+
+/** El admin ya devolvió la plata de un pago que entró sin cupo: la compra queda cerrada como devuelta. */
+export async function cerrarPagoSinCupo(ordenId: string): Promise<{ orden: Orden } | { error: string }> {
+  const orden = await getOrden(ordenId);
+  if (!orden) return { error: "Compra no encontrada" };
+  if (orden.estado !== "pendiente" || orden.problema !== "pago_sin_cupo") {
+    return { error: "Esta compra no es un pago sin cupo pendiente de devolver" };
+  }
+  const { data, error } = await db()
+    .from("ordenes")
+    .update({ estado: "reembolsado", monto_reembolsado: orden.montoTotal })
+    .eq("id", ordenId)
+    .eq("estado", "pendiente")
+    .select()
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { error: "La compra cambió mientras tanto. Recargá y revisá." };
   return { orden: mapOrden(data) };
 }
 
@@ -554,21 +633,29 @@ export async function anularTickets(input: {
 // ─── Admin ───────────────────────────────────────────────────────────────
 
 export async function getOrdenes(eventoId: string): Promise<Orden[]> {
-  const { data } = await db()
-    .from("ordenes")
-    .select("*")
-    .eq("evento_id", eventoId)
-    .order("created_at", { ascending: false });
-  return (data ?? []).map(mapOrden);
+  const rows = await traerTodo<OrdenRow>((desde, hasta) =>
+    db()
+      .from("ordenes")
+      .select("*")
+      .eq("evento_id", eventoId)
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(desde, hasta)
+  );
+  return rows.map(mapOrden);
 }
 
 export async function getTickets(eventoId: string): Promise<Ticket[]> {
-  const { data } = await db()
-    .from("tickets")
-    .select("*")
-    .eq("evento_id", eventoId)
-    .order("created_at", { ascending: false });
-  return (data ?? []).map(mapTicket);
+  const rows = await traerTodo<TicketRow>((desde, hasta) =>
+    db()
+      .from("tickets")
+      .select("*")
+      .eq("evento_id", eventoId)
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(desde, hasta)
+  );
+  return rows.map(mapTicket);
 }
 
 export async function getActivity(): Promise<ActivityLog[]> {
