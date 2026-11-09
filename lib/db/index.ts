@@ -2,8 +2,10 @@ import { isSupabaseConfigured } from "@/lib/config";
 import * as mock from "@/lib/mock/db";
 import * as supabase from "@/lib/supabase/queries";
 import type {
+  ActivityTipo,
   Branding,
   Evento,
+  ModoPago,
   NuevoEventoInput,
   PaymentMethod,
   TipoEntradaInput,
@@ -96,14 +98,30 @@ export async function createOrdenPendiente(input: {
   return sb() ? supabase.createOrdenPendiente(input) : mock.createOrdenPendiente(input);
 }
 
+/** Simulado si no hubo medio de pago; si no, según el ambiente configurado de ese medio. */
+async function resolverModoPago(paymentMethod?: PaymentMethod): Promise<ModoPago> {
+  if (!paymentMethod) return "simulado";
+  const { getPaymentSettings } = await import("@/lib/payments/settings");
+  const settings = await getPaymentSettings();
+  const env = paymentMethod === "mp" ? settings.mp.environment : settings.talo.environment;
+  return env === "sandbox" ? "sandbox" : "produccion";
+}
+
 /**
  * Aprueba la orden (pago confirmado) y emite los tickets.
  * Después intenta mandar el mail con los links de descarga (no bloquea si falla).
+ * `modoPago` lo puede informar el medio de pago (ej. `live_mode` de Mercado Pago).
  */
-export async function approveOrden(ordenId: string, paymentId?: string, paymentMethod?: PaymentMethod) {
+export async function approveOrden(
+  ordenId: string,
+  paymentId?: string,
+  paymentMethod?: PaymentMethod,
+  modoPago?: ModoPago
+) {
+  const modo = modoPago ?? (await resolverModoPago(paymentMethod));
   const result = sb()
-    ? await supabase.approveOrden(ordenId, paymentId, paymentMethod)
-    : await mock.approveOrden(ordenId, paymentId, paymentMethod);
+    ? await supabase.approveOrden(ordenId, paymentId, paymentMethod, modo)
+    : await mock.approveOrden(ordenId, paymentId, paymentMethod, modo);
 
   if (!("error" in result) && !result.orden.emailSentAt) {
     try {
@@ -161,8 +179,23 @@ export async function cancelTicket(ticketId: string, motivo?: string) {
   return sb() ? supabase.cancelTicket(ticketId, motivo) : mock.cancelTicket(ticketId, motivo);
 }
 
-export async function refundOrden(ordenId: string) {
-  return sb() ? supabase.refundOrden(ordenId) : mock.refundOrden(ordenId);
+export async function anularTickets(input: {
+  ordenId: string;
+  ticketIds: string[];
+  motivo: string;
+  devolverPlata: boolean;
+}) {
+  return sb() ? supabase.anularTickets(input) : mock.anularTickets(input);
+}
+
+/** Deja constancia en Actividad del panel (pagos, webhooks, etc.). No falla nunca. */
+export async function registrarActividad(tipo: ActivityTipo, mensaje: string) {
+  try {
+    if (sb()) await supabase.logActivity(tipo, mensaje);
+    else mock.logActivity(tipo, mensaje);
+  } catch (error) {
+    console.error("[ACTIVIDAD] no se pudo registrar:", error);
+  }
 }
 
 // ─── Admin ───────────────────────────────────────────────────────────────

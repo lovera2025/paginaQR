@@ -16,10 +16,18 @@ export async function POST(request: Request) {
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
+    const esPrueba = result.tokenTipo === "prueba";
+    const noCoincide =
+      (result.environment === "sandbox" && result.tokenTipo === "produccion") ||
+      (result.environment === "production" && esPrueba);
     return NextResponse.json({
       ok: true,
-      message: "Conexión con Mercado Pago OK",
+      message: `Conexión con Mercado Pago OK · token de ${esPrueba ? "PRUEBA" : result.tokenTipo === "produccion" ? "PRODUCCIÓN (cobra de verdad)" : "tipo desconocido"}`,
       environment: result.environment,
+      tokenTipo: result.tokenTipo,
+      advertencia: noCoincide
+        ? "El token no coincide con el ambiente elegido. Cambiá el ambiente o pegá el otro token antes de vender."
+        : null,
     });
   }
 

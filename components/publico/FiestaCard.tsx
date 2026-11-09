@@ -9,9 +9,15 @@ import { ddmm, diaCorto, formatPrecio } from "@/lib/utils";
 function badgeDe(item: EventoCatalogo, proxima: boolean): { texto: string; clase: string } | null {
   const { evento, disponibles, anticipadaHasta } = item;
   if (evento.estado === "pausado") return { texto: "POSTERGADA", clase: "bg-amber-400 text-tinta" };
+  if (item.proximamente)
+    return {
+      texto: item.abreEl ? `PRÓXIMAMENTE · ABRE ${ddmm(item.abreEl)}` : "PRÓXIMAMENTE",
+      clase: "border border-white/40 bg-noche/75 text-white backdrop-blur",
+    };
   if (disponibles <= 0) return { texto: "AGOTADO", clase: "bg-white/85 text-tinta" };
   if (evento.capacidad > 0 && disponibles / evento.capacidad < 0.15)
     return { texto: "ÚLTIMAS ENTRADAS", clase: "bg-naranja text-tinta" };
+  if (item.hayProximos && anticipadaHasta) return { texto: "ANTICIPADAS A LA VENTA", clase: "bg-naranja text-tinta" };
   if (proxima) return { texto: "PRÓXIMA", clase: "bg-oro text-tinta" };
   if (anticipadaHasta)
     return {
@@ -83,7 +89,12 @@ export function FiestaCard({ item, index, proxima }: { item: EventoCatalogo; ind
               {evento.nombre}
             </span>
             <span className="text-[11px] text-white/65">{evento.lugar}</span>
-            {precioDesde !== null && (
+            {item.proximamente && (
+              <span className="mt-1 text-xs font-semibold text-white/75">
+                {item.abreEl ? `Venta desde el ${ddmm(item.abreEl)}` : "Próximamente"}
+              </span>
+            )}
+            {!item.proximamente && precioDesde !== null && (
               <span className="mt-1 text-xs font-semibold text-white">
                 {agotado ? (
                   <span className="text-white/60">Sin entradas</span>

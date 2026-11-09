@@ -73,7 +73,7 @@ export async function getMpCredentialsForAdmin(): Promise<{
 }
 
 export async function testMpConnection(): Promise<
-  { ok: true; environment: string } | { error: string }
+  { ok: true; environment: string; tokenTipo: "prueba" | "produccion" | "desconocido" } | { error: string }
 > {
   const mp = await getMpSettings();
   if (!isMpConfigured(mp)) {
@@ -92,7 +92,16 @@ export async function testMpConnection(): Promise<
       };
     }
 
-    return { ok: true, environment: mp.environment };
+    const me = (await res.json().catch(() => ({}))) as { tags?: string[] };
+    const tags = Array.isArray(me.tags) ? me.tags : [];
+    // Los usuarios de prueba de MP vienen con el tag "test_user"; los tokens de prueba empiezan con TEST-.
+    const tokenTipo =
+      tags.includes("test_user") || mp.accessToken.startsWith("TEST-")
+        ? "prueba"
+        : mp.accessToken.startsWith("APP_USR-")
+          ? "produccion"
+          : "desconocido";
+    return { ok: true, environment: mp.environment, tokenTipo };
   } catch {
     return { error: "Error de red al conectar con Mercado Pago. Intentá de nuevo." };
   }

@@ -9,10 +9,10 @@ export const runtime = "nodejs";
 export async function GET(request: Request, { params }: { params: { ticketId: string } }) {
   const ticket = await getTicket(params.ticketId);
   if (!ticket) return NextResponse.json({ error: "Entrada no encontrada" }, { status: 404 });
-  if (ticket.cancelado) return NextResponse.json({ error: "Esta entrada fue cancelada" }, { status: 410 });
+  if (ticket.cancelado) return NextResponse.json({ error: "Esta entrada fue anulada" }, { status: 410 });
 
   const orden = await getOrden(ticket.ordenId);
-  if (!orden || orden.estado !== "aprobado") {
+  if (!orden || (orden.estado !== "aprobado" && orden.estado !== "reembolsado")) {
     return NextResponse.json({ error: "El pago todavía no está confirmado" }, { status: 409 });
   }
 

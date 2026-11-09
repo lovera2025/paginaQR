@@ -4,6 +4,8 @@ export interface MpPayment {
   status_detail?: string;
   external_reference?: string | null;
   transaction_amount?: number;
+  /** false = pago hecho con credenciales de prueba. */
+  live_mode?: boolean;
 }
 
 export interface MpPreferenceResponse {

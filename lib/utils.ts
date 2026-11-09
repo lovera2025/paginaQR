@@ -86,8 +86,14 @@ export function instagramHref(user: string | undefined | null): string | null {
 export function ticketEstadoLabel(ticket: {
   cancelado: boolean;
   usado: boolean;
+  reembolsado?: boolean;
+  motivoCancelacion?: string | null;
 }): string {
-  if (ticket.cancelado) return "Cancelada";
+  if (ticket.cancelado) {
+    if (ticket.reembolsado) return "Anulada (devuelta)";
+    if (ticket.motivoCancelacion?.startsWith("Anulación")) return "Anulada";
+    return "Dada de baja";
+  }
   if (ticket.usado) return "Ya ingresó";
   return "Sin usar";
 }

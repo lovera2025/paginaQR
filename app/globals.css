@@ -51,6 +51,11 @@ body {
 }
 
 @layer utilities {
+  /* Righteous tiene un solo peso: evitar la "negrita falsa" que el navegador inventa con font-bold/extrabold. */
+  .font-display {
+    font-synthesis: none;
+  }
+
   .text-balance {
     text-wrap: balance;
   }

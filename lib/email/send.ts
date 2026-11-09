@@ -25,8 +25,8 @@ export async function sendOrderConfirmationEmail(input: {
     return { sent: false, reason: "not_configured" };
   }
 
-  const { attachments, flyerCid, qrCids } = await buildEmailInlineAssets(evento, activos);
-  const html = buildConfirmationHtml({ orden, tickets: activos, evento, branding, flyerCid, qrCids });
+  const { attachments, flyerCid, logoCid, qrCids } = await buildEmailInlineAssets(evento, activos);
+  const html = buildConfirmationHtml({ orden, tickets: activos, evento, branding, flyerCid, logoCid, qrCids });
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const { error } = await resend.emails.send({

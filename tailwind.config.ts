@@ -19,10 +19,12 @@ const config: Config = {
           oscuro: "#b8862e",
         },
         naranja: "#e0953c",
+        // Magenta del logo: solo para detalles de marca, no para botones ni precios.
+        magenta: "#ff00ff",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "Inter", "system-ui", "sans-serif"],
-        display: ["var(--font-display)", "Montserrat", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "Righteous", "system-ui", "sans-serif"],
         script: ["var(--font-script)", "cursive"],
       },
       keyframes: {

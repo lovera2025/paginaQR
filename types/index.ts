@@ -2,7 +2,13 @@ export type OrdenEstado = "pendiente" | "aprobado" | "rechazado" | "reembolsado"
 
 export type EventoEstado = "borrador" | "venta" | "pausado" | "finalizado";
 
-export type ActivityTipo = "venta" | "ingreso" | "baja" | "reembolso";
+export type ActivityTipo = "venta" | "ingreso" | "baja" | "reembolso" | "pago";
+
+/** Cómo se cobró una compra: simulación local, credenciales de prueba o cobro real. */
+export type ModoPago = "simulado" | "sandbox" | "produccion";
+
+/** Situación de un tipo de entrada para el público. */
+export type FaseTipo = "oculto" | "proximamente" | "venta" | "agotada" | "cerrada" | "pausada";
 
 /** Diseño visual de la entrada (web, PDF, mail y scanner). */
 export type EntradaEstilo = "anticipada" | "general" | "vip" | "custom";
@@ -34,6 +40,10 @@ export interface Evento {
   textoFooter: string;
   organizadorNombre: string;
   mensajePostergado: string;
+  /** La fiesta se muestra pero todavía no vende (sin precio ni selector). */
+  proximamente: boolean;
+  /** Cuándo abre la venta si está en próximamente (null = fecha a confirmar). */
+  ventaAbre: string | null;
 }
 
 export interface TipoEntrada {
@@ -54,6 +64,10 @@ export interface TipoEntrada {
   colorAcento: string;
   activo: boolean;
   orden: number;
+  /** Se muestra como "Próximamente" hasta `ventaDesde` (o hasta que el admin lo cambie si no hay fecha). */
+  proximamente: boolean;
+  /** En próximamente, mostrar igual el precio. */
+  mostrarPrecioPrevio: boolean;
   createdAt: string;
 }
 
@@ -67,6 +81,9 @@ export interface TipoEntradaDisponible extends TipoEntrada {
   comprable: boolean;
   /** Motivo si no es comprable: "Agotada", "Cerró el 27/11", etc. */
   motivo: string | null;
+  fase: FaseTipo;
+  /** Fecha en que abre (solo en próximamente con fecha). */
+  abreEl: string | null;
 }
 
 export interface EventoCatalogo {
@@ -75,6 +92,12 @@ export interface EventoCatalogo {
   disponibles: number;
   /** Fecha de cierre de la anticipada vigente, si hay. */
   anticipadaHasta: string | null;
+  /** La fiesta entera está en próximamente ahora (no vende ningún tipo). */
+  proximamente: boolean;
+  /** Hay algún tipo en próximamente mientras otros se venden. */
+  hayProximos: boolean;
+  /** Cuándo abre la venta de la fiesta (si está en próximamente con fecha). */
+  abreEl: string | null;
   tipos: TipoEntradaDisponible[];
 }
 
@@ -88,6 +111,8 @@ export interface Branding {
   textoFooter: string;
   colorPrimario: string;
   colorSecundario: string;
+  /** Texto que ve el comprador sobre cómo anular una compra. */
+  politicaAnulacion: string;
 }
 
 export type PaymentMethod = "mp" | "talo";
@@ -107,6 +132,10 @@ export interface Orden {
   estado: OrdenEstado;
   createdAt: string;
   emailSentAt: string | null;
+  /** Se fija al aprobar. null = compra anterior a esta marca. */
+  modoPago: ModoPago | null;
+  /** Plata devuelta a mano por anulaciones. */
+  montoReembolsado: number;
 }
 
 export interface Ticket {
@@ -125,6 +154,8 @@ export interface Ticket {
   usadoAt: string | null;
   canceladoAt: string | null;
   motivoCancelacion: string | null;
+  /** Cancelada con devolución de plata (anulación). */
+  reembolsado: boolean;
   createdAt: string;
 }
 
@@ -166,6 +197,8 @@ export interface VerifyResult {
   eventoNombre?: string;
   eventoFecha?: string;
   message: string;
+  /** La entrada viene de una compra de prueba o simulada. */
+  prueba?: boolean;
 }
 
 export interface NuevoEventoInput {

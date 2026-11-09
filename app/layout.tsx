@@ -1,14 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Great_Vibes, Inter, Montserrat } from "next/font/google";
+import { Great_Vibes, Inter, Righteous } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  weight: ["600", "700", "800", "900"],
-  variable: "--font-display",
-  display: "swap",
-});
+// Righteous: geométrica y redondeada, la más parecida a las letras del logo de Junior Eventos. Tiene un solo peso.
+const righteous = Righteous({ subsets: ["latin"], weight: "400", variable: "--font-display", display: "swap" });
 const greatVibes = Great_Vibes({ subsets: ["latin"], weight: "400", variable: "--font-script", display: "swap" });
 
 export const metadata: Metadata = {
@@ -31,7 +27,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="es" className={`${inter.variable} ${montserrat.variable} ${greatVibes.variable}`}>
+    <html lang="es" className={`${inter.variable} ${righteous.variable} ${greatVibes.variable}`}>
       <body className="font-sans antialiased">{children}</body>
     </html>
   );

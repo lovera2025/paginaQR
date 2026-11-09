@@ -6,6 +6,7 @@ import { ComoFunciona } from "@/components/publico/ComoFunciona";
 import { Faq } from "@/components/publico/Faq";
 import { SiteFooter, WhatsappFab } from "@/components/publico/SiteFooter";
 import { Reveal } from "@/components/publico/Reveal";
+import { AvisoModoPrueba } from "@/components/publico/AvisoModoPrueba";
 import { IconMas } from "@/components/publico/iconos";
 import { whatsappHref } from "@/lib/utils";
 
@@ -24,7 +25,8 @@ export default async function HomePage() {
   const wa = whatsappHref(branding.contactoWhatsapp, "Hola! Quiero armar la recepción de mi colegio");
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-noche">
+    <main className="relative min-h-screen overflow-x-clip bg-noche">
+      <AvisoModoPrueba />
       <HomeHero branding={branding} proxima={proxima} flyers={flyers} totalFiestas={catalogo.length} />
       <Marquee eventos={eventos} />
 
@@ -67,7 +69,7 @@ export default async function HomePage() {
       </section>
 
       <ComoFunciona />
-      <Faq />
+      <Faq politicaAnulacion={branding.politicaAnulacion} />
       <SiteFooter branding={branding} />
       <WhatsappFab telefono={branding.contactoWhatsapp} />
     </main>

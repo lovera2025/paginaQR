@@ -5,11 +5,14 @@ import {
   buildCatalogo,
   computeStats,
   evaluarTipos,
+  fiestaEnProximamente,
   horaAr,
   ordenarTipos,
   uniqueSlug,
   validarCompraTipo,
+  validarDatosComprador,
 } from "@/lib/entradas/tipos";
+import { mensajeCancelada, prepararAnulacion, textoAnulacion } from "@/lib/entradas/anulaciones";
 import type {
   ActivityLog,
   AdminStats,
@@ -17,6 +20,7 @@ import type {
   Evento,
   EventoCatalogo,
   HistorialItem,
+  ModoPago,
   NuevoEventoInput,
   Orden,
   PaymentMethod,
@@ -56,7 +60,12 @@ function getStore(): MockStore {
   return global.__mockStoreV2;
 }
 
-function logActivity(tipo: ActivityLog["tipo"], mensaje: string) {
+/** Solo para tests: vuelve el mock al estado inicial. */
+export function __resetMockStore() {
+  global.__mockStoreV2 = undefined;
+}
+
+export function logActivity(tipo: ActivityLog["tipo"], mensaje: string) {
   const store = getStore();
   store.activity.unshift({ id: uuidv4(), tipo, mensaje, createdAt: new Date().toISOString() });
   if (store.activity.length > 100) store.activity.pop();
@@ -193,10 +202,11 @@ export function createOrdenPendiente(input: {
     if (evento.estado === "pausado") return { error: "Las ventas están pausadas temporalmente" };
     return { error: "Las ventas están cerradas para esta fiesta" };
   }
+  if (fiestaEnProximamente(evento)) return { error: "La venta de esta fiesta todavía no abrió" };
   if (!Number.isInteger(input.cantidad) || input.cantidad < 1 || input.cantidad > 10)
     return { error: "Cantidad inválida (1-10)" };
-  if (!input.compradorNombre.trim() || !input.compradorEmail.trim())
-    return { error: "Nombre y email son obligatorios" };
+  const datosInvalidos = validarDatosComprador(input.compradorNombre, input.compradorEmail);
+  if (datosInvalidos) return { error: datosInvalidos };
 
   const disponible = getTiposDisponibles(evento.id).find((t) => t.id === input.tipoEntradaId);
   const problema = validarCompraTipo(disponible, input.cantidad);
@@ -217,6 +227,8 @@ export function createOrdenPendiente(input: {
     estado: "pendiente",
     createdAt: new Date().toISOString(),
     emailSentAt: null,
+    modoPago: null,
+    montoReembolsado: 0,
   };
   store.ordenes.unshift(orden);
   return { orden };
@@ -242,7 +254,8 @@ export function setOrdenPaymentId(
 export async function approveOrden(
   ordenId: string,
   paymentId?: string,
-  paymentMethod?: PaymentMethod
+  paymentMethod?: PaymentMethod,
+  modoPago: ModoPago = "simulado"
 ): Promise<{ orden: Orden; tickets: Ticket[]; nueva: boolean } | { error: string }> {
   const store = getStore();
   const orden = store.ordenes.find((o) => o.id === ordenId);
@@ -266,6 +279,7 @@ export async function approveOrden(
   orden.estado = "aprobado";
   orden.paymentId = paymentId ?? `mock_${orden.id.slice(0, 8)}`;
   if (paymentMethod) orden.paymentMethod = paymentMethod;
+  orden.modoPago = modoPago;
 
   const now = new Date().toISOString();
   const nuevos: Ticket[] = Array.from({ length: orden.cantidad }, (_, i) => ({
@@ -284,6 +298,7 @@ export async function approveOrden(
     usadoAt: null,
     canceladoAt: null,
     motivoCancelacion: null,
+    reembolsado: false,
     createdAt: now,
   }));
   store.tickets.unshift(...nuevos);
@@ -337,13 +352,18 @@ export function verifyTicket(ticketId: string, eventoId?: string): VerifyResult 
   if (!ticket) return { status: "invalido", message: "QR no reconocido" };
 
   const evento = getEventoById(ticket.eventoId);
-  const extra = { eventoNombre: evento?.nombre, eventoFecha: evento?.fecha };
+  const modo = getOrden(ticket.ordenId)?.modoPago;
+  const extra = {
+    eventoNombre: evento?.nombre,
+    eventoFecha: evento?.fecha,
+    prueba: modo === "simulado" || modo === "sandbox",
+  };
 
   if (eventoId && ticket.eventoId !== eventoId) {
     return { status: "otro_evento", ticket, ...extra, message: "Es de otra fiesta" };
   }
   if (ticket.cancelado) {
-    return { status: "cancelada", ticket, ...extra, message: "Entrada cancelada" };
+    return { status: "cancelada", ticket, ...extra, message: mensajeCancelada(ticket) };
   }
   if (ticket.usado) {
     return {
@@ -374,22 +394,40 @@ export function cancelTicket(ticketId: string, motivo?: string): { ticket: Ticke
   return { ticket };
 }
 
-export function refundOrden(ordenId: string): { orden: Orden } | { error: string } {
-  const store = getStore();
-  const orden = getOrden(ordenId);
-  if (!orden) return { error: "Orden no encontrada" };
-  if (orden.estado === "reembolsado") return { error: "Ya reembolsada" };
-  if (orden.estado !== "aprobado") return { error: "Solo órdenes aprobadas" };
-  for (const t of store.tickets.filter((x) => x.ordenId === ordenId)) {
-    if (!t.cancelado) {
-      t.cancelado = true;
-      t.canceladoAt = new Date().toISOString();
-      t.motivoCancelacion = "Reembolso de orden";
-    }
+/** Anula entradas de una compra (a mano, después de hablar con el comprador). */
+export function anularTickets(input: {
+  ordenId: string;
+  ticketIds: string[];
+  motivo: string;
+  devolverPlata: boolean;
+}): { orden: Orden; tickets: Ticket[]; monto: number } | { error: string } {
+  const orden = getOrden(input.ordenId);
+  if (!orden) return { error: "Compra no encontrada" };
+  if (orden.estado !== "aprobado") return { error: "Solo se pueden anular compras con pago aprobado" };
+  const motivo = input.motivo.trim();
+  if (!motivo) return { error: "Elegí el motivo de la anulación" };
+
+  const tickets = getTicketsByOrden(orden.id);
+  const prep = prepararAnulacion(orden, tickets, input.ticketIds);
+  if ("error" in prep) return prep;
+
+  const now = new Date().toISOString();
+  for (const t of prep.tickets) {
+    t.cancelado = true;
+    t.canceladoAt = now;
+    t.motivoCancelacion = `Anulación: ${motivo}`;
+    t.reembolsado = input.devolverPlata;
   }
-  orden.estado = "reembolsado";
-  logActivity("reembolso", `Reembolso: ${orden.compradorNombre}, $${orden.montoTotal.toLocaleString("es-AR")}`);
-  return { orden };
+  const monto = input.devolverPlata ? prep.monto : 0;
+  orden.montoReembolsado += monto;
+  if (!tickets.some((t) => !t.cancelado) && orden.montoReembolsado > 0) orden.estado = "reembolsado";
+
+  const evento = getEventoById(orden.eventoId);
+  logActivity(
+    input.devolverPlata ? "reembolso" : "baja",
+    textoAnulacion(evento?.slug ?? "", orden, prep.tickets.length, monto, motivo)
+  );
+  return { orden, tickets: prep.tickets, monto };
 }
 
 // ─── Admin ───────────────────────────────────────────────────────────────
@@ -518,6 +556,8 @@ export function crearNuevoEvento(input: NuevoEventoInput): { evento: Evento } | 
     textoFooter: copiar ? anterior.textoFooter : b.textoFooter,
     organizadorNombre: copiar ? anterior.organizadorNombre : b.nombre,
     mensajePostergado: "",
+    proximamente: false,
+    ventaAbre: null,
   };
   store.eventos.push(evento);
   store.tipos.push({
@@ -534,6 +574,8 @@ export function crearNuevoEvento(input: NuevoEventoInput): { evento: Evento } | 
     colorAcento: "",
     activo: true,
     orden: 0,
+    proximamente: false,
+    mostrarPrecioPrevio: false,
     createdAt: new Date().toISOString(),
   });
   return { evento };

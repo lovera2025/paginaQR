@@ -3,6 +3,7 @@ import {
   approveOrden,
   getOrden,
   getOrdenByPaymentId,
+  registrarActividad,
   rejectOrden,
 } from "@/lib/db";
 import { getAppUrl } from "@/lib/config";
@@ -162,15 +163,21 @@ export async function processTaloPayment(
     return { ok: true };
   }
 
+  const ref = `Talo ${paymentId.slice(0, 12)} · compra ${ordenId.slice(0, 8)}`;
   if (payment.payment_status === "SUCCESS" || payment.payment_status === "OVERPAID") {
     const result = await approveOrden(ordenId, paymentId, "talo");
-    if ("error" in result) return { error: result.error };
+    if ("error" in result) {
+      await registrarActividad("pago", `${ref} → transferencia acreditada pero no se pudieron emitir las entradas: ${result.error}`);
+      return { error: result.error };
+    }
+    await registrarActividad("pago", `${ref} → aprobado${result.orden.modoPago === "sandbox" ? " (PRUEBA)" : ""}`);
     return { ok: true };
   }
 
   if (payment.payment_status === "EXPIRED") {
     const result = await rejectOrden(ordenId);
     if ("error" in result) return { error: result.error };
+    await registrarActividad("pago", `${ref} → venció sin pagar`);
     return { ok: true };
   }
 

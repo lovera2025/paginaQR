@@ -38,11 +38,10 @@ export function SiteFooter({ branding }: { branding: Branding }) {
           </p>
           <Link
             href="/staff"
-            aria-label="Acceso staff"
-            title="Acceso staff"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white/25 transition hover:bg-white/5 hover:text-white/60"
+            className="inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-[12px] text-white/45 transition hover:bg-white/5 hover:text-white/80"
           >
-            <IconCandado size={16} />
+            <IconCandado size={14} />
+            Login/Staff
           </Link>
         </div>
       </div>

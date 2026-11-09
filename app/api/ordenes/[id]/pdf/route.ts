@@ -9,6 +9,9 @@ export const runtime = "nodejs";
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   const orden = await getOrden(params.id);
   if (!orden) return NextResponse.json({ error: "Compra no encontrada" }, { status: 404 });
+  if (orden.estado === "reembolsado") {
+    return NextResponse.json({ error: "Las entradas de esta compra fueron anuladas" }, { status: 410 });
+  }
   if (orden.estado !== "aprobado") {
     return NextResponse.json({ error: "El pago todavía no está confirmado" }, { status: 409 });
   }
@@ -22,7 +25,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
   const activas = tickets.filter((t) => !t.cancelado).sort((a, b) => a.numeroEntrada - b.numeroEntrada);
   if (activas.length === 0) {
-    return NextResponse.json({ error: "No hay entradas activas en esta compra" }, { status: 410 });
+    return NextResponse.json({ error: "Las entradas de esta compra fueron anuladas" }, { status: 410 });
   }
 
   const pdf = await buildTicketPdf({

@@ -8,12 +8,16 @@ import { TIPO_PRESETS } from "@/lib/entradas/tipos";
 import { ddmm, formatPrecio, isoToDatetimeLocalAr } from "@/lib/utils";
 import type { EntradaEstilo, Evento, StatsPorTipo, TipoEntradaDisponible } from "@/types";
 
+type EstadoVenta = "venta" | "fecha" | "confirmar";
+
 interface Form {
   id?: string;
   nombre: string;
   precio: string;
   cupo: string;
-  ventaDesde: string; // datetime-local AR
+  estadoVenta: EstadoVenta;
+  mostrarPrecioPrevio: boolean;
+  ventaDesde: string; // datetime-local AR (solo en "fecha")
   ventaHasta: string;
   estilo: EntradaEstilo;
   colorAcento: string;
@@ -35,6 +39,8 @@ function formDesde(t: TipoEntradaDisponible): Form {
     nombre: t.nombre,
     precio: String(t.precio),
     cupo: t.cupo === null ? "" : String(t.cupo),
+    estadoVenta: t.ventaDesde ? "fecha" : t.proximamente ? "confirmar" : "venta",
+    mostrarPrecioPrevio: t.mostrarPrecioPrevio,
     ventaDesde: t.ventaDesde ? isoToDatetimeLocalAr(t.ventaDesde) : "",
     ventaHasta: t.ventaHasta ? isoToDatetimeLocalAr(t.ventaHasta) : "",
     estilo: t.estilo,
@@ -61,6 +67,8 @@ function formNuevo(preset: keyof typeof TIPO_PRESETS | "otro", evento: Evento): 
     nombre: base.nombre,
     precio: "",
     cupo: base.cupo === null ? "" : String(base.cupo),
+    estadoVenta: preset !== "otro" && base.proximamente ? "confirmar" : "venta",
+    mostrarPrecioPrevio: false,
     ventaDesde: "",
     ventaHasta,
     estilo: base.estilo,
@@ -118,13 +126,19 @@ export function TiposEntradaPanel({
     e.preventDefault();
     if (!form) return;
     setError("");
+    if (form.estadoVenta === "fecha" && !form.ventaDesde) {
+      setError("Elegí la fecha y hora en que abre la venta");
+      return;
+    }
     setGuardando(true);
     const body = {
       eventoId: evento.id,
       nombre: form.nombre,
       precio: Number(form.precio),
       cupo: form.cupo.trim() === "" ? null : Number(form.cupo),
-      ventaDesde: aIso(form.ventaDesde),
+      proximamente: form.estadoVenta !== "venta",
+      mostrarPrecioPrevio: form.estadoVenta !== "venta" && form.mostrarPrecioPrevio,
+      ventaDesde: form.estadoVenta === "fecha" ? aIso(form.ventaDesde) : null,
       ventaHasta: aIso(form.ventaHasta),
       estilo: form.estilo,
       colorAcento: form.estilo === "custom" ? form.colorAcento : "",
@@ -282,17 +296,27 @@ export function TiposEntradaPanel({
                     </td>
                     <td className="px-4 py-3.5 text-white/80">{formatPrecio(recaudadoPorTipo.get(t.id) ?? 0)}</td>
                     <td className="px-4 py-3.5 text-xs text-white/70">
-                      {t.ventaDesde ? `Desde ${ddmm(t.ventaDesde)}` : "Desde ya"}
+                      {t.ventaDesde ? `Abre ${ddmm(t.ventaDesde)}` : t.proximamente ? "Fecha a confirmar" : "Desde ya"}
                       <br />
                       {t.ventaHasta ? `Hasta ${ddmm(t.ventaHasta)}` : "Hasta el día"}
                     </td>
                     <td className="px-4 py-3.5">
                       <span
                         className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                          t.comprable ? "bg-green-500/15 text-green-300" : t.activo ? "bg-amber-500/15 text-amber-200" : "bg-white/10 text-white/55"
+                          t.comprable
+                            ? "bg-green-500/15 text-green-300"
+                            : t.fase === "proximamente"
+                              ? "bg-sky-500/15 text-sky-200"
+                              : t.activo
+                                ? "bg-amber-500/15 text-amber-200"
+                                : "bg-white/10 text-white/55"
                         }`}
                       >
-                        {t.comprable ? "A la venta" : t.motivo}
+                        {t.comprable
+                          ? "A la venta"
+                          : t.fase === "proximamente"
+                            ? `Próximamente · ${t.abreEl ? `abre ${ddmm(t.abreEl)}` : "a confirmar"}`
+                            : t.motivo}
                       </span>
                     </td>
                     <td className="px-4 py-3.5">
@@ -300,6 +324,18 @@ export function TiposEntradaPanel({
                         <button type="button" onClick={() => setForm(formDesde(t))} className="h-8 rounded-lg border border-white/20 px-3 text-xs font-semibold hover:bg-white/5">
                           Editar
                         </button>
+                        {t.activo && t.fase === "proximamente" && !t.abreEl && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              confirm(`¿Abrir la venta de ${t.nombre} ahora a ${formatPrecio(t.precio)}?`) &&
+                              patch(t.id, { proximamente: false, ventaDesde: null }, `${t.nombre} a la venta`)
+                            }
+                            className="text-[11px] text-green-300 hover:underline"
+                          >
+                            Abrir venta ahora
+                          </button>
+                        )}
                         {anticipadaAbierta && (
                           <button
                             type="button"
@@ -369,14 +405,48 @@ export function TiposEntradaPanel({
                     Cupo (vacío = sin tope)
                     <input type="number" min={1} inputMode="numeric" value={form.cupo} onChange={(e) => setForm({ ...form, cupo: e.target.value })} placeholder="Sin tope" className="campo" />
                   </label>
-                  <label className="flex flex-col gap-1 text-xs text-white/60">
-                    Venta desde (vacío = ya)
-                    <input type="datetime-local" value={form.ventaDesde} onChange={(e) => setForm({ ...form, ventaDesde: e.target.value })} className="campo [color-scheme:dark]" />
+                  <label className="col-span-2 flex flex-col gap-1 text-xs text-white/60">
+                    Estado de venta
+                    <select
+                      value={form.estadoVenta}
+                      onChange={(e) => setForm({ ...form, estadoVenta: e.target.value as EstadoVenta })}
+                      className="campo"
+                    >
+                      <option value="venta">A la venta</option>
+                      <option value="fecha">Próximamente · abre en una fecha (con cuenta regresiva)</option>
+                      <option value="confirmar">Próximamente · fecha a confirmar</option>
+                    </select>
                   </label>
-                  <label className="flex flex-col gap-1 text-xs text-white/60">
+                  {form.estadoVenta === "fecha" && (
+                    <label className="flex flex-col gap-1 text-xs text-white/60">
+                      Abre el
+                      <input type="datetime-local" value={form.ventaDesde} onChange={(e) => setForm({ ...form, ventaDesde: e.target.value })} className="campo [color-scheme:dark]" />
+                    </label>
+                  )}
+                  <label className={`flex flex-col gap-1 text-xs text-white/60 ${form.estadoVenta === "fecha" ? "" : "col-span-2 sm:col-span-1"}`}>
                     Venta hasta (vacío = hasta el día)
                     <input type="datetime-local" value={form.ventaHasta} onChange={(e) => setForm({ ...form, ventaHasta: e.target.value })} className="campo [color-scheme:dark]" />
                   </label>
+                  {form.estadoVenta !== "venta" && (
+                    <div className="col-span-2 flex flex-col gap-2 rounded-xl border border-sky-400/25 bg-sky-400/[0.06] px-4 py-3 text-xs text-sky-100/85">
+                      <span>
+                        En la página se ve como <strong>PRÓXIMAMENTE</strong>, sin precio ni cantidad.
+                        {form.estadoVenta === "fecha"
+                          ? " Muestra la cuenta regresiva y abre sola cuando llega la fecha."
+                          : " Queda así hasta que la pases a \"A la venta\"."}{" "}
+                        El precio lo podés cambiar antes de abrir.
+                      </span>
+                      <label className="flex items-center gap-2 text-white/80">
+                        <input
+                          type="checkbox"
+                          checked={form.mostrarPrecioPrevio}
+                          onChange={(e) => setForm({ ...form, mostrarPrecioPrevio: e.target.checked })}
+                          className="h-4 w-4 accent-[#d4a853]"
+                        />
+                        Mostrar el precio antes de abrir
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 <fieldset className="flex flex-col gap-2">

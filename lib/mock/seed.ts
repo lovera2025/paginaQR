@@ -34,6 +34,9 @@ function restarDias(dia: string, dias: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+export const POLITICA_ANULACION_DEFAULT =
+  "¿Te arrepentiste? Escribinos por WhatsApp dentro de las 4 horas de la compra y te devolvemos el dinero. Pasado ese plazo no hay devolución.";
+
 export const SEED_BRANDING: Branding = {
   nombre: "Junior Eventos",
   logoUrl: "",
@@ -44,6 +47,7 @@ export const SEED_BRANDING: Branding = {
   textoFooter: "Entradas personales con QR. Cada QR vale una sola vez.",
   colorPrimario: "#d4a853",
   colorSecundario: "#050508",
+  politicaAnulacion: POLITICA_ANULACION_DEFAULT,
 };
 
 export function buildSeed(): { eventos: Evento[]; tipos: TipoEntrada[] } {
@@ -78,7 +82,12 @@ export function buildSeed(): { eventos: Evento[]; tipos: TipoEntrada[] } {
       textoFooter: SEED_BRANDING.textoFooter,
       organizadorNombre: SEED_BRANDING.nombre,
       mensajePostergado: "",
+      proximamente: false,
+      ventaAbre: null,
     });
+
+    // Anticipada a la venta; General abre sola cuando cierra la anticipada; VIP "fecha a confirmar".
+    const cierreAnticipada = fechaAr(restarDias(r.dia, 7), "23:59");
 
     tipos.push(
       {
@@ -90,11 +99,13 @@ export function buildSeed(): { eventos: Evento[]; tipos: TipoEntrada[] } {
         precio: 15000,
         cupo: 150,
         ventaDesde: null,
-        ventaHasta: fechaAr(restarDias(r.dia, 7), "23:59"),
+        ventaHasta: cierreAnticipada,
         estilo: "anticipada",
         colorAcento: "",
         activo: true,
         orden: 0,
+        proximamente: false,
+        mostrarPrecioPrevio: false,
         createdAt,
       },
       {
@@ -105,12 +116,14 @@ export function buildSeed(): { eventos: Evento[]; tipos: TipoEntrada[] } {
         beneficios: [],
         precio: 18000,
         cupo: null,
-        ventaDesde: null,
+        ventaDesde: cierreAnticipada,
         ventaHasta: null,
         estilo: "general",
         colorAcento: "",
         activo: true,
         orden: 1,
+        proximamente: true,
+        mostrarPrecioPrevio: false,
         createdAt,
       },
       {
@@ -127,6 +140,8 @@ export function buildSeed(): { eventos: Evento[]; tipos: TipoEntrada[] } {
         colorAcento: "",
         activo: true,
         orden: 2,
+        proximamente: true,
+        mostrarPrecioPrevio: false,
         createdAt,
       }
     );

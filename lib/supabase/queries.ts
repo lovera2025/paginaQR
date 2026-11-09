@@ -11,14 +11,17 @@ import {
   mapTipoToRow,
 } from "./mappers";
 import { canComprarPublico } from "@/lib/evento/estado";
+import { mensajeCancelada, prepararAnulacion, textoAnulacion } from "@/lib/entradas/anulaciones";
 import {
   buildCatalogo,
   computeStats,
   evaluarTipos,
+  fiestaEnProximamente,
   horaAr,
   ordenarTipos,
   uniqueSlug,
   validarCompraTipo,
+  validarDatosComprador,
 } from "@/lib/entradas/tipos";
 import { SEED_BRANDING } from "@/lib/mock/seed";
 import type {
@@ -28,6 +31,7 @@ import type {
   Evento,
   EventoCatalogo,
   HistorialItem,
+  ModoPago,
   NuevoEventoInput,
   Orden,
   PaymentMethod,
@@ -44,7 +48,7 @@ function db() {
   return client;
 }
 
-async function logActivity(tipo: ActivityLog["tipo"], mensaje: string) {
+export async function logActivity(tipo: ActivityLog["tipo"], mensaje: string) {
   await db().from("activity_log").insert({ tipo, mensaje });
 }
 
@@ -221,10 +225,11 @@ export async function createOrdenPendiente(input: {
     if (evento.estado === "pausado") return { error: "Las ventas están pausadas temporalmente" };
     return { error: "Las ventas están cerradas para esta fiesta" };
   }
+  if (fiestaEnProximamente(evento)) return { error: "La venta de esta fiesta todavía no abrió" };
   if (!Number.isInteger(input.cantidad) || input.cantidad < 1 || input.cantidad > 10)
     return { error: "Cantidad inválida (1-10)" };
-  if (!input.compradorNombre.trim() || !input.compradorEmail.trim())
-    return { error: "Nombre y email son obligatorios" };
+  const datosInvalidos = validarDatosComprador(input.compradorNombre, input.compradorEmail);
+  if (datosInvalidos) return { error: datosInvalidos };
 
   const disponible = (await getTiposDisponibles(evento.id)).find((t) => t.id === input.tipoEntradaId);
   const problema = validarCompraTipo(disponible, input.cantidad);
@@ -270,7 +275,8 @@ export async function setOrdenPaymentId(
 export async function approveOrden(
   ordenId: string,
   paymentId?: string,
-  paymentMethod?: PaymentMethod
+  paymentMethod?: PaymentMethod,
+  modoPago: ModoPago = "simulado"
 ): Promise<{ orden: Orden; tickets: Ticket[]; nueva: boolean } | { error: string }> {
   const { data: ordenRow, error: ordenError } = await db()
     .from("ordenes")
@@ -302,7 +308,12 @@ export async function approveOrden(
   // Paso atómico: solo un proceso puede pasar la orden de pendiente a aprobado.
   const { data: claimed, error: updateError } = await db()
     .from("ordenes")
-    .update({ estado: "aprobado", mp_payment_id: resolvedPaymentId, payment_method: resolvedMethod })
+    .update({
+      estado: "aprobado",
+      mp_payment_id: resolvedPaymentId,
+      payment_method: resolvedMethod,
+      modo_pago: modoPago,
+    })
     .eq("id", ordenId)
     .eq("estado", "pendiente")
     .select()
@@ -329,7 +340,11 @@ export async function approveOrden(
   }));
 
   const { data: ticketsData, error: ticketsError } = await db().from("tickets").insert(ticketRows).select();
-  if (ticketsError) return { error: ticketsError.message };
+  if (ticketsError) {
+    // Sin entradas la compra no puede quedar aprobada: se vuelve a pendiente para reintentar.
+    await db().from("ordenes").update({ estado: "pendiente" }).eq("id", ordenId).eq("estado", "aprobado");
+    return { error: ticketsError.message };
+  }
 
   await logActivity(
     "venta",
@@ -396,8 +411,16 @@ export async function verifyTicket(ticketId: string, eventoId?: string): Promise
   const existing = await getTicket(ticketId);
   if (!existing) return { status: "invalido", message: "QR no reconocido" };
 
-  const evento = await getEventoById(existing.eventoId);
-  const extra = { eventoNombre: evento?.nombre, eventoFecha: evento?.fecha };
+  const [evento, ordenModo] = await Promise.all([
+    getEventoById(existing.eventoId),
+    db().from("ordenes").select("modo_pago").eq("id", existing.ordenId).maybeSingle(),
+  ]);
+  const modo = (ordenModo.data as { modo_pago?: string | null } | null)?.modo_pago;
+  const extra = {
+    eventoNombre: evento?.nombre,
+    eventoFecha: evento?.fecha,
+    prueba: modo === "simulado" || modo === "sandbox",
+  };
 
   if (eventoId && existing.eventoId !== eventoId) {
     return { status: "otro_evento", ticket: existing, ...extra, message: "Es de otra fiesta" };
@@ -425,7 +448,7 @@ export async function verifyTicket(ticketId: string, eventoId?: string): Promise
 
   const ticket = (await getTicket(ticketId)) ?? existing;
   if (ticket.cancelado) {
-    return { status: "cancelada", ticket, ...extra, message: "Entrada cancelada" };
+    return { status: "cancelada", ticket, ...extra, message: mensajeCancelada(ticket) };
   }
   return {
     status: "usada",
@@ -453,37 +476,79 @@ export async function cancelTicket(
   return { ticket };
 }
 
-export async function refundOrden(ordenId: string): Promise<{ orden: Orden } | { error: string }> {
-  const orden = await getOrden(ordenId);
-  if (!orden) return { error: "Orden no encontrada" };
-  if (orden.estado === "reembolsado") return { error: "Ya reembolsada" };
-  if (orden.estado !== "aprobado") return { error: "Solo órdenes aprobadas" };
+/** Anula entradas de una compra (a mano, después de hablar con el comprador). */
+export async function anularTickets(input: {
+  ordenId: string;
+  ticketIds: string[];
+  motivo: string;
+  devolverPlata: boolean;
+}): Promise<{ orden: Orden; tickets: Ticket[]; monto: number } | { error: string }> {
+  const orden = await getOrden(input.ordenId);
+  if (!orden) return { error: "Compra no encontrada" };
+  if (orden.estado !== "aprobado") return { error: "Solo se pueden anular compras con pago aprobado" };
+  const motivo = input.motivo.trim();
+  if (!motivo) return { error: "Elegí el motivo de la anulación" };
 
-  if (orden.paymentMethod === "mp" && orden.paymentId && !orden.paymentId.startsWith("mock_")) {
-    const { isMercadoPagoConfigured } = await import("@/lib/mercadopago/credentials");
-    if (await isMercadoPagoConfigured()) {
-      const { refundMpPayment } = await import("@/lib/mercadopago/refund");
-      const mpResult = await refundMpPayment(orden.paymentId);
-      if ("error" in mpResult) return mpResult;
+  const tickets = await getTicketsByOrden(orden.id);
+  const prep = prepararAnulacion(orden, tickets, input.ticketIds);
+  if ("error" in prep) return prep;
+
+  // Solo se anulan las que siguen sin usar y sin cancelar en este momento (dos admins a la vez, puerta).
+  const { data: anuladasRows, error } = await db()
+    .from("tickets")
+    .update({
+      cancelado: true,
+      cancelado_at: new Date().toISOString(),
+      motivo_cancelacion: `Anulación: ${motivo}`,
+      reembolsado: input.devolverPlata,
+    })
+    .in(
+      "id",
+      prep.tickets.map((t) => t.id)
+    )
+    .eq("orden_id", orden.id)
+    .eq("cancelado", false)
+    .eq("usado", false)
+    .select();
+  if (error) return { error: error.message };
+  const anuladas = (anuladasRows ?? []).map(mapTicket);
+  if (anuladas.length === 0) return { error: "Esas entradas ya no se pueden anular (¿ingresaron recién?)" };
+
+  const monto = input.devolverPlata ? Math.round(anuladas.length * orden.precioUnitario * 100) / 100 : 0;
+
+  // Suma optimista del monto devuelto (reintenta si otro admin anuló al mismo tiempo).
+  let actual = orden;
+  for (let intento = 0; intento < 3; intento++) {
+    const { count } = await db()
+      .from("tickets")
+      .select("id", { count: "exact", head: true })
+      .eq("orden_id", orden.id)
+      .eq("cancelado", false);
+    const nuevoMonto = actual.montoReembolsado + monto;
+    const cambios: Record<string, unknown> = { monto_reembolsado: nuevoMonto };
+    if ((count ?? 0) === 0 && nuevoMonto > 0) cambios.estado = "reembolsado";
+    const { data: upd } = await db()
+      .from("ordenes")
+      .update(cambios)
+      .eq("id", orden.id)
+      .eq("monto_reembolsado", actual.montoReembolsado)
+      .select()
+      .maybeSingle();
+    if (upd) {
+      actual = mapOrden(upd);
+      break;
     }
+    const releida = await getOrden(orden.id);
+    if (!releida) break;
+    actual = releida;
   }
 
-  await db()
-    .from("tickets")
-    .update({ cancelado: true, cancelado_at: new Date().toISOString(), motivo_cancelacion: "Reembolso de orden" })
-    .eq("orden_id", ordenId)
-    .eq("cancelado", false);
-
-  const { data, error } = await db()
-    .from("ordenes")
-    .update({ estado: "reembolsado" })
-    .eq("id", ordenId)
-    .select()
-    .single();
-  if (error) return { error: error.message };
-
-  await logActivity("reembolso", `Reembolso: ${orden.compradorNombre}, $${orden.montoTotal.toLocaleString("es-AR")}`);
-  return { orden: mapOrden(data) };
+  const evento = await getEventoById(orden.eventoId);
+  await logActivity(
+    input.devolverPlata ? "reembolso" : "baja",
+    textoAnulacion(evento?.slug ?? "", orden, anuladas.length, monto, motivo)
+  );
+  return { orden: actual, tickets: anuladas, monto };
 }
 
 // ─── Admin ───────────────────────────────────────────────────────────────
@@ -665,6 +730,8 @@ export async function crearNuevoEvento(
         lugar: "",
         mapsUrl: "",
         mensajePostergado: "",
+        proximamente: false,
+        ventaAbre: null,
         ...base,
       }),
       id,

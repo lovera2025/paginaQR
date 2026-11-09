@@ -1,5 +1,5 @@
 import { getAppUrl } from "@/lib/config";
-import { getMpSettings, getMpWebhookUrl } from "@/lib/mercadopago/credentials";
+import { getMpWebhookUrl } from "@/lib/mercadopago/credentials";
 import { mpFetch } from "@/lib/mercadopago/client";
 import type { MpPreferenceResponse } from "@/lib/mercadopago/types";
 import type { Evento, Orden } from "@/types";
@@ -10,7 +10,6 @@ export async function createCheckoutPreference(
 ): Promise<{ initPoint: string } | { error: string }> {
   const appUrl = getAppUrl();
   const title = `Entrada ${orden.tipoNombre} — ${evento.nombre}`.slice(0, 256);
-  const mp = await getMpSettings();
 
   const result = await mpFetch<MpPreferenceResponse>("/checkout/preferences", {
     method: "POST",
@@ -42,10 +41,8 @@ export async function createCheckoutPreference(
 
   if ("error" in result) return { error: result.error };
 
-  const initPoint =
-    mp.environment === "sandbox"
-      ? result.data.sandbox_init_point || result.data.init_point
-      : result.data.init_point || result.data.sandbox_init_point;
+  // Con credenciales de prueba, init_point ya abre el checkout de prueba (sandbox_init_point está deprecado).
+  const initPoint = result.data.init_point || result.data.sandbox_init_point;
 
   if (!initPoint) return { error: "Mercado Pago no devolvió URL de pago" };
 

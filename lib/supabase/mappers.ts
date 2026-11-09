@@ -1,9 +1,11 @@
 import { ESTILOS_VALIDOS } from "@/lib/entradas/tipos";
+import { POLITICA_ANULACION_DEFAULT } from "@/lib/mock/seed";
 import type {
   ActivityLog,
   Branding,
   EntradaEstilo,
   Evento,
+  ModoPago,
   Orden,
   OrdenEstado,
   Ticket,
@@ -18,6 +20,10 @@ import type {
   TicketRow,
   TipoEntradaRow,
 } from "./types";
+
+function toModoPago(value: string | null | undefined): ModoPago | null {
+  return value === "simulado" || value === "sandbox" || value === "produccion" ? value : null;
+}
 
 function toEstilo(value: string | null | undefined): EntradaEstilo {
   return ESTILOS_VALIDOS.includes(value as EntradaEstilo) ? (value as EntradaEstilo) : "general";
@@ -48,6 +54,8 @@ export function mapEvento(row: EventoRow): Evento {
     textoFooter: row.texto_footer ?? "",
     organizadorNombre: row.organizador_nombre ?? "",
     mensajePostergado: row.mensaje_postergado ?? "",
+    proximamente: row.proximamente === true,
+    ventaAbre: row.venta_abre ?? null,
   };
 }
 
@@ -76,6 +84,8 @@ export function mapEventoToRow(evento: Partial<Evento>): Partial<EventoRow> {
   if (evento.textoFooter !== undefined) row.texto_footer = evento.textoFooter;
   if (evento.organizadorNombre !== undefined) row.organizador_nombre = evento.organizadorNombre;
   if (evento.mensajePostergado !== undefined) row.mensaje_postergado = evento.mensajePostergado;
+  if (evento.proximamente !== undefined) row.proximamente = evento.proximamente;
+  if (evento.ventaAbre !== undefined) row.venta_abre = evento.ventaAbre;
   return row;
 }
 
@@ -94,6 +104,8 @@ export function mapTipo(row: TipoEntradaRow): TipoEntrada {
     colorAcento: row.color_acento ?? "",
     activo: row.activo,
     orden: row.orden ?? 0,
+    proximamente: row.proximamente === true,
+    mostrarPrecioPrevio: row.mostrar_precio_previo === true,
     createdAt: row.created_at,
   };
 }
@@ -111,6 +123,8 @@ export function mapTipoToRow(input: Partial<TipoEntradaInput>): Partial<TipoEntr
   if (input.colorAcento !== undefined) row.color_acento = input.colorAcento;
   if (input.activo !== undefined) row.activo = input.activo;
   if (input.orden !== undefined) row.orden = input.orden;
+  if (input.proximamente !== undefined) row.proximamente = input.proximamente;
+  if (input.mostrarPrecioPrevio !== undefined) row.mostrar_precio_previo = input.mostrarPrecioPrevio;
   return row;
 }
 
@@ -137,6 +151,8 @@ export function mapOrden(row: OrdenRow): Orden {
     estado: row.estado as OrdenEstado,
     createdAt: row.created_at,
     emailSentAt: row.email_sent_at ?? null,
+    modoPago: toModoPago(row.modo_pago),
+    montoReembolsado: Number(row.monto_reembolsado ?? 0) || 0,
   };
 }
 
@@ -157,6 +173,7 @@ export function mapTicket(row: TicketRow): Ticket {
     usadoAt: row.usado_at,
     canceladoAt: row.cancelado_at,
     motivoCancelacion: row.motivo_cancelacion,
+    reembolsado: row.reembolsado === true,
     createdAt: row.created_at,
   };
 }
@@ -181,6 +198,7 @@ export function mapBranding(row: BrandingRow): Branding {
     textoFooter: row.texto_footer ?? "",
     colorPrimario: row.color_primario ?? "#d4a853",
     colorSecundario: row.color_secundario ?? "#050508",
+    politicaAnulacion: row.politica_anulacion ?? POLITICA_ANULACION_DEFAULT,
   };
 }
 
@@ -195,5 +213,6 @@ export function mapBrandingToRow(data: Partial<Branding>): Partial<BrandingRow> 
   if (data.textoFooter !== undefined) row.texto_footer = data.textoFooter;
   if (data.colorPrimario !== undefined) row.color_primario = data.colorPrimario;
   if (data.colorSecundario !== undefined) row.color_secundario = data.colorSecundario;
+  if (data.politicaAnulacion !== undefined) row.politica_anulacion = data.politicaAnulacion;
   return row;
 }

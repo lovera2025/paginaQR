@@ -22,6 +22,8 @@ export interface EventoRow {
   texto_footer: string;
   organizador_nombre: string;
   mensaje_postergado: string;
+  proximamente: boolean | null;
+  venta_abre: string | null;
   created_at: string;
 }
 
@@ -39,6 +41,8 @@ export interface TipoEntradaRow {
   color_acento: string | null;
   activo: boolean;
   orden: number;
+  proximamente: boolean | null;
+  mostrar_precio_previo: boolean | null;
   created_at: string;
 }
 
@@ -57,6 +61,8 @@ export interface OrdenRow {
   estado: string;
   created_at: string;
   email_sent_at: string | null;
+  modo_pago: string | null;
+  monto_reembolsado: number | string | null;
 }
 
 export interface TicketRow {
@@ -75,6 +81,7 @@ export interface TicketRow {
   usado_at: string | null;
   cancelado_at: string | null;
   motivo_cancelacion: string | null;
+  reembolsado: boolean | null;
   created_at: string;
 }
 
@@ -96,4 +103,5 @@ export interface BrandingRow {
   texto_footer: string;
   color_primario: string;
   color_secundario: string;
+  politica_anulacion: string | null;
 }

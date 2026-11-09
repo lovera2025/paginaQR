@@ -4,6 +4,7 @@ import type {
   EntradaEstilo,
   Evento,
   EventoCatalogo,
+  FaseTipo,
   Orden,
   StatsPorTipo,
   Ticket,
@@ -58,7 +59,10 @@ export const TIPO_PRESETS: Record<"anticipada" | "general" | "vip", Omit<TipoEnt
     estilo: "anticipada",
     colorAcento: "",
     activo: true,
+    proximamente: false,
+    mostrarPrecioPrevio: false,
   },
+  // General y VIP nacen en "Próximamente, fecha a confirmar": el jefe los abre cuando confirma.
   general: {
     nombre: "General",
     descripcion: "Acceso a la fiesta toda la noche.",
@@ -69,6 +73,8 @@ export const TIPO_PRESETS: Record<"anticipada" | "general" | "vip", Omit<TipoEnt
     estilo: "general",
     colorAcento: "",
     activo: true,
+    proximamente: true,
+    mostrarPrecioPrevio: false,
   },
   vip: {
     nombre: "VIP",
@@ -80,8 +86,38 @@ export const TIPO_PRESETS: Record<"anticipada" | "general" | "vip", Omit<TipoEnt
     estilo: "vip",
     colorAcento: "",
     activo: true,
+    proximamente: true,
+    mostrarPrecioPrevio: false,
   },
 };
+
+// ─── Próximamente ────────────────────────────────────────────────────────
+
+/** La fiesta entera todavía no vende: sin fecha queda así hasta que el admin la abra. */
+export function fiestaEnProximamente(
+  evento: Pick<Evento, "proximamente" | "ventaAbre">,
+  now: Date = new Date()
+): boolean {
+  if (!evento.proximamente) return false;
+  return !evento.ventaAbre || now < new Date(evento.ventaAbre);
+}
+
+/** Se puede comprar en la fiesta (estado + próximamente). */
+export function puedeComprar(evento: Pick<Evento, "estado" | "proximamente" | "ventaAbre">, now: Date = new Date()): boolean {
+  return canComprarPublico(evento.estado) && !fiestaEnProximamente(evento, now);
+}
+
+/**
+ * Un tipo está en próximamente si tiene "venta desde" futura (abre solo cuando llega)
+ * o si está marcado como próximamente sin fecha (fecha a confirmar).
+ */
+export function tipoEnProximamente(
+  tipo: Pick<TipoEntrada, "proximamente" | "ventaDesde">,
+  now: Date = new Date()
+): boolean {
+  if (tipo.ventaDesde) return now < new Date(tipo.ventaDesde);
+  return tipo.proximamente;
+}
 
 function toIsoOrNull(value: unknown): string | null | "invalid" {
   if (value === null || value === undefined || value === "") return null;
@@ -160,6 +196,26 @@ export function normalizarTipoInput(
     const orden = Number(raw.orden ?? 0);
     out.orden = Number.isFinite(orden) ? Math.trunc(orden) : 0;
   }
+  if (!parcial || raw.proximamente !== undefined) {
+    out.proximamente = Boolean(raw.proximamente);
+  }
+  if (!parcial || raw.mostrarPrecioPrevio !== undefined) {
+    out.mostrarPrecioPrevio = Boolean(raw.mostrarPrecioPrevio);
+  }
+  return { value: out };
+}
+
+/** Valida los campos de "Próximamente" de la fiesta que manda el admin. */
+export function normalizarVentaFiesta(
+  raw: Record<string, unknown>
+): { value: { proximamente?: boolean; ventaAbre?: string | null } } | { error: string } {
+  const out: { proximamente?: boolean; ventaAbre?: string | null } = {};
+  if (raw.proximamente !== undefined) out.proximamente = Boolean(raw.proximamente);
+  if (raw.ventaAbre !== undefined) {
+    const v = toIsoOrNull(raw.ventaAbre);
+    if (v === "invalid") return { error: "Fecha de apertura de venta inválida" };
+    out.ventaAbre = v;
+  }
   return { value: out };
 }
 
@@ -190,32 +246,65 @@ export function evaluarTipos(
   const vendidasPorTipo = contarVendidas(tickets);
   const activosEvento = tickets.filter((t) => !t.cancelado).length;
   const restanteEvento = Math.max(0, evento.capacidad - activosEvento);
+  const fiestaProx = fiestaEnProximamente(evento, now);
 
   return ordenarTipos(tipos).map((tipo) => {
     const vendidas = vendidasPorTipo.get(tipo.id) ?? 0;
     const restanteTipo = tipo.cupo === null ? Infinity : Math.max(0, tipo.cupo - vendidas);
     const disponibles = Math.min(restanteEvento, restanteTipo);
 
+    let fase: FaseTipo = "venta";
     let motivo: string | null = null;
-    if (!tipo.activo) motivo = "No disponible";
-    else if (evento.estado === "pausado") motivo = "Ventas pausadas";
-    else if (evento.estado === "finalizado") motivo = "Finalizado";
-    else if (tipo.ventaDesde && now < new Date(tipo.ventaDesde))
-      motivo = `Desde el ${fechaCortaAr(tipo.ventaDesde)}`;
-    else if (tipo.ventaHasta && now > new Date(tipo.ventaHasta))
+    let abreEl: string | null = null;
+    if (!tipo.activo) {
+      fase = "oculto";
+      motivo = "No disponible";
+    } else if (evento.estado === "pausado") {
+      fase = "pausada";
+      motivo = "Ventas pausadas";
+    } else if (evento.estado === "finalizado") {
+      fase = "cerrada";
+      motivo = "Finalizado";
+    } else if (fiestaProx || tipoEnProximamente(tipo, now)) {
+      fase = "proximamente";
+      motivo = "Próximamente";
+      abreEl = fiestaProx ? evento.ventaAbre : tipo.ventaDesde;
+    } else if (tipo.ventaHasta && now > new Date(tipo.ventaHasta)) {
+      fase = "cerrada";
       motivo = `Cerró el ${fechaCortaAr(tipo.ventaHasta)}`;
-    else if (disponibles <= 0) motivo = "Agotada";
+    } else if (disponibles <= 0) {
+      fase = "agotada";
+      motivo = "Agotada";
+    }
 
     return {
       ...tipo,
       vendidas,
       disponibles,
-      comprable: motivo === null && canComprarPublico(evento.estado),
+      comprable: fase === "venta" && canComprarPublico(evento.estado),
       motivo,
+      fase,
+      abreEl,
     };
   });
 }
 
+/**
+ * Lo que puede ver el público de un tipo: en "Próximamente" no viaja ni el precio
+ * ni cuántas quedan (salvo que el admin elija mostrar el precio).
+ */
+export function tipoParaPublico(tipo: TipoEntradaDisponible): TipoEntradaDisponible {
+  if (tipo.fase !== "proximamente") return tipo;
+  return {
+    ...tipo,
+    precio: tipo.mostrarPrecioPrevio ? tipo.precio : 0,
+    cupo: null,
+    vendidas: 0,
+    disponibles: 0,
+  };
+}
+
+/** Catálogo público de una fiesta (precios de "Próximamente" ocultos). */
 export function buildCatalogo(
   evento: Evento,
   tipos: TipoEntrada[],
@@ -224,18 +313,44 @@ export function buildCatalogo(
 ): EventoCatalogo {
   const evaluados = evaluarTipos(evento, tipos, tickets, now).filter((t) => t.activo);
   const comprables = evaluados.filter((t) => t.comprable);
-  const base = comprables.length ? comprables : evaluados;
+  const conPrecioVisible = evaluados.filter((t) => t.fase !== "proximamente");
+  const base = comprables.length ? comprables : conPrecioVisible;
   const precioDesde = base.length ? Math.min(...base.map((t) => t.precio)) : null;
   const activos = tickets.filter((t) => !t.cancelado).length;
   const anticipada = comprables.find((t) => t.estilo === "anticipada" && t.ventaHasta);
 
+  const fiestaProx = fiestaEnProximamente(evento, now);
+  const proximos = evaluados.filter((t) => t.fase === "proximamente");
+  const todosProximos = evaluados.length > 0 && proximos.length === evaluados.length;
+  const proximamente = canComprarPublico(evento.estado) && (fiestaProx || todosProximos);
+  const fechasTipos = proximos
+    .map((t) => t.abreEl)
+    .filter((f): f is string => Boolean(f))
+    .sort();
+
   return {
-    evento,
-    precioDesde,
+    // `evento.precio` es un campo viejo (= precio de la General): no se publica.
+    evento: { ...evento, precio: 0 },
+    precioDesde: proximamente ? null : precioDesde,
     disponibles: Math.max(0, evento.capacidad - activos),
     anticipadaHasta: anticipada?.ventaHasta ?? null,
-    tipos: evaluados,
+    proximamente,
+    hayProximos: !proximamente && proximos.length > 0 && comprables.length > 0,
+    abreEl: fiestaProx ? evento.ventaAbre : todosProximos ? (fechasTipos[0] ?? null) : null,
+    tipos: evaluados.map(tipoParaPublico),
   };
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** Nombre y mail del comprador: el mail es por donde le llegan las entradas. */
+export function validarDatosComprador(nombre: string, email: string): string | null {
+  const n = nombre.trim();
+  const e = email.trim();
+  if (!n || !e) return "Nombre y email son obligatorios";
+  if (n.length > 80) return "El nombre es demasiado largo";
+  if (e.length > 120 || !EMAIL_RE.test(e)) return "Revisá el email: ahí te llegan las entradas";
+  return null;
 }
 
 /** Motivo legible si el tipo no se puede comprar con esa cantidad. */
@@ -255,6 +370,12 @@ export function validarCompraTipo(
   return null;
 }
 
+/** Plata devuelta de una compra (las reembolsadas de antes de las anulaciones parciales cuentan completas). */
+export function montoDevuelto(o: Pick<Orden, "estado" | "montoTotal" | "montoReembolsado">): number {
+  if (o.montoReembolsado > 0) return o.montoReembolsado;
+  return o.estado === "reembolsado" ? o.montoTotal : 0;
+}
+
 export function computeStats(
   evento: Pick<Evento, "capacidad">,
   tipos: TipoEntrada[],
@@ -263,10 +384,10 @@ export function computeStats(
 ): AdminStats {
   const activas = tickets.filter((t) => !t.cancelado);
   const aprobadas = ordenes.filter((o) => o.estado === "aprobado");
-  const recaudado = aprobadas.reduce((sum, o) => sum + o.montoTotal, 0);
-  const reembolsado = ordenes
-    .filter((o) => o.estado === "reembolsado")
-    .reduce((sum, o) => sum + o.montoTotal, 0);
+  const cobradas = ordenes.filter((o) => o.estado === "aprobado" || o.estado === "reembolsado");
+  const neto = (lista: Orden[]) => lista.reduce((sum, o) => sum + o.montoTotal - montoDevuelto(o), 0);
+  const recaudado = neto(cobradas);
+  const reembolsado = cobradas.reduce((sum, o) => sum + montoDevuelto(o), 0);
 
   const porTipo: StatsPorTipo[] = ordenarTipos(tipos).map((tipo) => ({
     tipoEntradaId: tipo.id,
@@ -274,9 +395,7 @@ export function computeStats(
     estilo: tipo.estilo,
     vendidas: activas.filter((t) => t.tipoEntradaId === tipo.id).length,
     cupo: tipo.cupo,
-    recaudado: aprobadas
-      .filter((o) => o.tipoEntradaId === tipo.id)
-      .reduce((sum, o) => sum + o.montoTotal, 0),
+    recaudado: neto(cobradas.filter((o) => o.tipoEntradaId === tipo.id)),
   }));
 
   const sinTipo = activas.filter((t) => !t.tipoEntradaId || !tipos.some((x) => x.id === t.tipoEntradaId));
@@ -287,9 +406,7 @@ export function computeStats(
       estilo: "general",
       vendidas: sinTipo.length,
       cupo: null,
-      recaudado: aprobadas
-        .filter((o) => !o.tipoEntradaId || !tipos.some((x) => x.id === o.tipoEntradaId))
-        .reduce((sum, o) => sum + o.montoTotal, 0),
+      recaudado: neto(cobradas.filter((o) => !o.tipoEntradaId || !tipos.some((x) => x.id === o.tipoEntradaId))),
     });
   }
 

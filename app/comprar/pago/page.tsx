@@ -6,6 +6,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { formatPrecio } from "@/lib/utils";
 import { IconBanco, IconTarjeta, IconAtras } from "@/components/publico/iconos";
+import { BarraModoPrueba } from "@/components/publico/BarraModoPrueba";
+import { avisoModoPrueba } from "@/lib/payments/aviso";
 import type { Orden, PaymentMethod } from "@/types";
 
 type Resumen = Orden & {
@@ -41,7 +43,7 @@ interface PaymentInfo {
   montoTotal: number;
 }
 
-function PagoContent() {
+function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const ordenId = searchParams.get("orden");
@@ -55,6 +57,7 @@ function PagoContent() {
   const [waiting, setWaiting] = useState(false);
   const [redirectingMp, setRedirectingMp] = useState(false);
   const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [sinMedios, setSinMedios] = useState(false);
   const volverHref = resumen?.evento ? `/fiesta/${resumen.evento.slug}` : "/";
 
   useEffect(() => {
@@ -127,8 +130,15 @@ function PagoContent() {
         const available = (data.methods ?? []) as PaymentMethod[];
         setSimulateMode(simulate);
         setMethods(available);
+        onAviso(avisoModoPrueba({ simulate, sandbox: Boolean(data.sandbox) }));
 
         if (simulate) {
+          setLoading(false);
+          return;
+        }
+
+        if (available.length === 0) {
+          setSinMedios(true);
           setLoading(false);
           return;
         }
@@ -150,7 +160,7 @@ function PagoContent() {
         setError("Error al cargar opciones de pago");
         setLoading(false);
       });
-  }, [ordenId, startMercadoPago, startTalo]);
+  }, [ordenId, startMercadoPago, startTalo, onAviso]);
 
   useEffect(() => {
     if (!payment || !ordenId || simulateMode) return;
@@ -260,6 +270,19 @@ function PagoContent() {
             ? "Redirigiendo a Mercado Pago..."
             : "Preparando tu pago..."}
         </p>
+      </div>
+    );
+  }
+
+  if (sinMedios) {
+    return (
+      <div className="mx-auto max-w-md text-center">
+        <ResumenCompra r={resumen} />
+        <p className="font-display text-xl font-extrabold">Los pagos online no están disponibles ahora</p>
+        <p className="mt-2 text-sm text-white/60">No se cobró nada. Escribinos por WhatsApp y te ayudamos con tu entrada.</p>
+        <Link href={volverHref} className="mt-6 inline-block text-sm underline">
+          Volver a la fiesta
+        </Link>
       </div>
     );
   }
@@ -466,17 +489,21 @@ function PagoContent() {
 }
 
 export default function PagoPage() {
+  const [aviso, setAviso] = useState<string | null>(null);
   return (
-    <div className="flex min-h-screen items-center justify-center bg-noche px-5 py-10">
-      <Suspense
-        fallback={
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-oro" />
-        }
-      >
-        <div className="w-full min-w-0">
-          <PagoContent />
-        </div>
-      </Suspense>
+    <div className="min-h-screen bg-noche">
+      <BarraModoPrueba texto={aviso} />
+      <div className="flex min-h-[calc(100vh-28px)] items-center justify-center px-5 py-10">
+        <Suspense
+          fallback={
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-oro" />
+          }
+        >
+          <div className="w-full min-w-0">
+            <PagoContent onAviso={setAviso} />
+          </div>
+        </Suspense>
+      </div>
     </div>
   );
 }

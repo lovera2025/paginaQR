@@ -12,6 +12,12 @@ const CAMPOS: { key: keyof Branding; label: string; placeholder?: string; multil
   { key: "contactoInstagram", label: "Instagram", placeholder: "junior_eventos_ok" },
   { key: "contactoEmail", label: "Email de contacto" },
   { key: "textoFooter", label: "Texto del pie de página", multiline: true },
+  {
+    key: "politicaAnulacion",
+    label: "Política de anulación (se ve en la fiesta, en Preguntas y al terminar la compra)",
+    placeholder: "¿Te arrepentiste? Escribinos por WhatsApp dentro de las 4 horas de la compra…",
+    multiline: true,
+  },
 ];
 
 /** Datos globales del sitio: nombre, logo y contacto (se usan en la portada, footer, mail y PDF). */

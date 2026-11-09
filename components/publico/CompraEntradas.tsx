@@ -4,8 +4,46 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Evento, TipoEntradaDisponible } from "@/types";
-import { ddmm, formatPrecio } from "@/lib/utils";
-import { IconCorona } from "./iconos";
+import { ddmm, formatPrecio, whatsappHref } from "@/lib/utils";
+import { CuentaTexto } from "./Countdown";
+import { IconCorona, IconWhatsapp } from "./iconos";
+
+/** Tarjeta de un tipo que todavía no está a la venta: sin radio, sin cantidad y sin precio (salvo que el admin lo muestre). */
+function TipoProximo({ tipo, ocultarFecha }: { tipo: TipoEntradaDisponible; ocultarFecha: boolean }) {
+  const vip = tipo.estilo === "vip";
+  return (
+    <div
+      className="relative flex items-center gap-3.5 overflow-hidden rounded-[18px] border-2 border-dashed border-white/12 bg-white/[0.025] p-4"
+      aria-label={`${tipo.nombre}: próximamente`}
+    >
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="inline-flex w-fit items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 font-display text-[9px] font-extrabold tracking-[0.16em] text-white/80">
+          {vip && <IconCorona size={9} />}
+          PRÓXIMAMENTE
+        </span>
+        <span className={`font-display text-base font-extrabold ${vip ? "text-oro-claro/80" : "text-white/85"}`}>{tipo.nombre}</span>
+        {tipo.descripcion && <span className="text-xs leading-snug text-white/55">{tipo.descripcion}</span>}
+        {tipo.beneficios.length > 0 && (
+          <span className="flex flex-wrap gap-1">
+            {tipo.beneficios.map((b) => (
+              <span key={b} className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10.5px] text-white/60">
+                {b}
+              </span>
+            ))}
+          </span>
+        )}
+        {!ocultarFecha && (
+          <span className="text-[11px] font-semibold text-white/70">
+            {tipo.abreEl ? <CuentaTexto fecha={tipo.abreEl} recargarAlTerminar /> : "Fecha a confirmar"}
+          </span>
+        )}
+      </span>
+      {tipo.mostrarPrecioPrevio && tipo.precio > 0 && (
+        <span className="shrink-0 font-display text-lg font-extrabold text-white/60">{formatPrecio(tipo.precio)}</span>
+      )}
+    </div>
+  );
+}
 
 function TipoOpcion({
   tipo,
@@ -108,10 +146,23 @@ function TipoOpcion({
   );
 }
 
-export function CompraEntradas({ evento, tipos }: { evento: Evento; tipos: TipoEntradaDisponible[] }) {
+export function CompraEntradas({
+  evento,
+  tipos,
+  whatsapp = "",
+  fiestaProximamente = false,
+}: {
+  evento: Evento;
+  tipos: TipoEntradaDisponible[];
+  whatsapp?: string;
+  /** Toda la fiesta en próximamente: la fecha de apertura se muestra arriba, no en cada tipo. */
+  fiestaProximamente?: boolean;
+}) {
   const router = useRouter();
   const visibles = tipos.filter((t) => t.activo);
   const primero = visibles.find((t) => t.comprable) ?? null;
+  const hayProximos = visibles.some((t) => t.fase === "proximamente");
+  const waAvisame = whatsappHref(whatsapp, `Hola! Avisame cuando abra la venta de ${evento.nombre}`);
   const [tipoId, setTipoId] = useState<string | null>(primero?.id ?? null);
   const [cantidad, setCantidad] = useState(1);
   const [nombre, setNombre] = useState("");
@@ -122,10 +173,12 @@ export function CompraEntradas({ evento, tipos }: { evento: Evento; tipos: TipoE
 
   const tipo = visibles.find((t) => t.id === tipoId) ?? null;
   const max = tipo ? Math.max(1, Math.min(10, tipo.disponibles)) : 10;
-  const precioGeneral = useMemo(
-    () => visibles.find((t) => t.estilo === "general" && t.activo)?.precio ?? null,
-    [visibles]
-  );
+  const precioGeneral = useMemo(() => {
+    const general = visibles.find((t) => t.estilo === "general" && t.activo);
+    // Solo se tacha contra la General si su precio es público.
+    if (!general || (general.fase === "proximamente" && !general.mostrarPrecioPrevio)) return null;
+    return general.precio;
+  }, [visibles]);
 
   useEffect(() => {
     if (cantidad > max) setCantidad(max);
@@ -177,22 +230,34 @@ export function CompraEntradas({ evento, tipos }: { evento: Evento; tipos: TipoE
       <div className="flex flex-col gap-3" role="radiogroup" aria-label="Tipo de entrada">
         <div className="flex items-baseline justify-between">
           <h2 className="font-display text-[22px] font-extrabold">
-            Elegí tu <span className="text-oro">entrada</span>
+            {primero ? (
+              <>
+                Elegí tu <span className="text-oro">entrada</span>
+              </>
+            ) : (
+              <>
+                Las <span className="text-oro">entradas</span>
+              </>
+            )}
           </h2>
-          <span className="text-[11px] text-white/45">1 tipo por compra</span>
+          {primero && <span className="text-[11px] text-white/45">1 tipo por compra</span>}
         </div>
-        {visibles.map((t) => (
-          <TipoOpcion
-            key={t.id}
-            tipo={t}
-            seleccionado={t.id === tipoId}
-            onSelect={() => {
-              setTipoId(t.id);
-              setError("");
-            }}
-            precioGeneral={precioGeneral}
-          />
-        ))}
+        {visibles.map((t) =>
+          t.fase === "proximamente" ? (
+            <TipoProximo key={t.id} tipo={t} ocultarFecha={fiestaProximamente} />
+          ) : (
+            <TipoOpcion
+              key={t.id}
+              tipo={t}
+              seleccionado={t.id === tipoId}
+              onSelect={() => {
+                setTipoId(t.id);
+                setError("");
+              }}
+              precioGeneral={precioGeneral}
+            />
+          )
+        )}
       </div>
 
       {primero ? (
@@ -296,6 +361,22 @@ export function CompraEntradas({ evento, tipos }: { evento: Evento; tipos: TipoE
             <span>· elegís en el próximo paso</span>
           </div>
         </form>
+      ) : hayProximos ? (
+        <div className="tarjeta flex flex-col items-center gap-3 p-5 text-center">
+          <p className="font-display text-lg font-extrabold">Todavía no abrió la venta</p>
+          <p className="text-sm text-white/60">Las entradas salen muy pronto. Te avisamos por WhatsApp.</p>
+          {waAvisame && (
+            <a
+              href={waAvisame}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-12 items-center gap-2 rounded-full bg-[#25d366] px-5 text-sm font-bold text-[#06240f]"
+            >
+              <IconWhatsapp size={18} />
+              Avisame cuando abra
+            </a>
+          )}
+        </div>
       ) : (
         <div className="tarjeta p-5 text-center text-sm text-white/65">
           No hay entradas disponibles en este momento. Consultá por WhatsApp.

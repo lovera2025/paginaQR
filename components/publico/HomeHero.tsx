@@ -6,7 +6,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import type { Branding, Evento } from "@/types";
 import { diaCorto } from "@/lib/utils";
 import { Countdown } from "./Countdown";
-import { IconFlecha } from "./iconos";
+import { IconCandado, IconFlecha } from "./iconos";
 import { Marca } from "./Marca";
 
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -34,14 +34,21 @@ export function HomeHero({
       />
 
       <header className="relative mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 pt-5 sm:px-8">
-        <Marca branding={branding} />
-        <nav className="flex items-center gap-6 text-sm">
+        <Marca branding={branding} compactaEnMovil />
+        <nav className="flex items-center gap-3 text-sm sm:gap-6">
           <a href="#como" className="hidden text-white/75 hover:text-white md:inline">
             Cómo funciona
           </a>
           <a href="#faq" className="hidden text-white/75 hover:text-white md:inline">
             Preguntas
           </a>
+          <Link
+            href="/staff"
+            className="inline-flex h-10 items-center gap-1.5 whitespace-nowrap text-[12px] text-white/70 transition hover:text-white sm:text-[13px]"
+          >
+            <IconCandado size={14} />
+            Login/Staff
+          </Link>
           <a href="#fiestas" className="btn-oro h-10 px-5 text-[12px] tracking-[0.06em] sm:h-11 sm:text-[13px]">
             ENTRADAS
           </a>

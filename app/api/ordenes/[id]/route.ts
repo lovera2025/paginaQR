@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getEventoById, getOrden } from "@/lib/db";
+import { getBranding, getEventoById, getOrden } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +9,13 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   if (!orden) {
     return NextResponse.json({ error: "Compra no encontrada" }, { status: 404 });
   }
-  const evento = await getEventoById(orden.eventoId);
+  const [evento, branding] = await Promise.all([getEventoById(orden.eventoId), getBranding()]);
   return NextResponse.json({
     ...orden,
+    contacto: {
+      whatsapp: evento?.contactoWhatsapp || branding.contactoWhatsapp,
+      politicaAnulacion: branding.politicaAnulacion,
+    },
     evento: evento
       ? {
           nombre: evento.nombre,

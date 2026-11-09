@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { IconCandado, IconFlecha } from "@/components/publico/iconos";
+import { MARCA_ISOTIPO } from "@/components/publico/Marca";
 
 type Rol = "admin" | "scanner";
 
@@ -22,9 +23,10 @@ function destinoPermitido(next: string | null, rol: Rol): string | null {
 
 function MarcaStaff() {
   return (
-    <div className="flex items-baseline gap-1.5">
-      <span className="font-script text-[34px] leading-none text-oro">Junior</span>
-      <span className="font-display text-[13px] font-extrabold tracking-[0.22em]">STAFF</span>
+    <div className="flex items-center gap-2.5">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={MARCA_ISOTIPO} alt="Junior Eventos" width={34} height={36} />
+      <span className="font-display text-[15px] tracking-[0.22em]">STAFF</span>
     </div>
   );
 }
@@ -87,7 +89,7 @@ function PinPad({ onLogin, aviso }: { onLogin: (rol: Rol) => void; aviso: string
         <span className="flex h-14 w-14 items-center justify-center rounded-full border border-oro/50 bg-oro/[0.12] text-oro">
           <IconCandado size={24} />
         </span>
-        <h1 className="mt-1 font-display text-[22px] font-extrabold">Acceso staff</h1>
+        <h1 className="mt-1 font-display text-[22px] font-extrabold">Login/Staff</h1>
         <p className="text-[13px] text-white/60">Ingresá tu PIN. Según el PIN entrás al panel o al scanner.</p>
       </div>
 

@@ -14,6 +14,7 @@ const CAMPOS: (keyof Branding)[] = [
   "textoFooter",
   "colorPrimario",
   "colorSecundario",
+  "politicaAnulacion",
 ];
 
 export async function GET() {
@@ -26,7 +27,7 @@ export async function PUT(request: Request) {
   const body = await request.json();
   const data: Partial<Branding> = {};
   for (const campo of CAMPOS) {
-    if (body[campo] !== undefined) data[campo] = String(body[campo]).trim();
+    if (body[campo] !== undefined) data[campo] = String(body[campo]).trim().slice(0, campo === "politicaAnulacion" ? 400 : 200);
   }
   if (data.contactoInstagram) data.contactoInstagram = data.contactoInstagram.replace(/^@/, "");
   for (const c of ["colorPrimario", "colorSecundario"] as const) {

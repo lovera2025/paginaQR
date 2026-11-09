@@ -21,7 +21,8 @@ function formatFechaAsunto(iso: string): string {
 
 export function buildConfirmationSubject(evento: Evento, orden: Orden): string {
   const n = orden.cantidad;
-  return `Tus ${n > 1 ? `${n} entradas` : "entrada"} ${orden.tipoNombre} — ${evento.nombre} · ${formatFechaAsunto(evento.fecha)}`;
+  const prueba = orden.modoPago === "simulado" || orden.modoPago === "sandbox" ? "[PRUEBA] " : "";
+  return `${prueba}Tus ${n > 1 ? `${n} entradas` : "entrada"} ${orden.tipoNombre} — ${evento.nombre} · ${formatFechaAsunto(evento.fecha)}`;
 }
 
 function boton(href: string, texto: string, primario: boolean): string {
@@ -37,9 +38,10 @@ export function buildConfirmationHtml(input: {
   evento: Evento;
   branding: Branding;
   flyerCid: string | null;
+  logoCid?: string | null;
   qrCids: string[];
 }): string {
-  const { orden, tickets, evento, branding, flyerCid, qrCids } = input;
+  const { orden, tickets, evento, branding, flyerCid, logoCid, qrCids } = input;
   const appUrl = getAppUrl();
   const organizador = evento.organizadorNombre || branding.nombre || "Junior Eventos";
   const verUrl = `${appUrl}/compra/exito?orden=${orden.id}`;
@@ -90,6 +92,7 @@ export function buildConfirmationHtml(input: {
     <tr>
       <td align="center">
         <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:${BRAND.negro};border:1px solid #2a2418;border-radius:18px;overflow:hidden;color:#fff;">
+          ${logoCid ? `<tr><td align="center" style="padding:18px 20px 14px;"><img src="cid:${logoCid}" alt="${escapeHtml(organizador)}" width="190" style="display:block;width:190px;max-width:70%;height:auto;" /></td></tr>` : ""}
           <tr><td>${flyerBlock}</td></tr>
           <tr>
             <td style="padding:24px 28px 8px;">

@@ -11,6 +11,7 @@ import { CompartirBoton } from "@/components/publico/CompartirBoton";
 import { Countdown } from "@/components/publico/Countdown";
 import { Marca } from "@/components/publico/Marca";
 import { SiteFooter, WhatsappFab } from "@/components/publico/SiteFooter";
+import { AvisoModoPrueba } from "@/components/publico/AvisoModoPrueba";
 import { IconAtras, IconCalendario, IconDisco, IconPin, IconReloj } from "@/components/publico/iconos";
 import type { Evento } from "@/types";
 
@@ -55,17 +56,22 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
   if (!catalogo) notFound();
 
   const pausado = evento.estado === "pausado";
-  const wa = whatsappHref(evento.contactoWhatsapp || branding.contactoWhatsapp, `Hola! Consulta por la recepción ${evento.nombre}`);
+  const proximamente = catalogo.proximamente;
+  const telefono = evento.contactoWhatsapp || branding.contactoWhatsapp;
+  const wa = whatsappHref(telefono, `Hola! Consulta por la recepción ${evento.nombre}`);
   const anticipada = catalogo.tipos.find((t) => t.estilo === "anticipada" && t.comprable && t.ventaHasta);
   const futura = new Date(evento.fecha).getTime() > Date.now();
 
   return (
     <main className="relative min-h-screen bg-noche pb-28 lg:pb-0">
-      {!publica && (
-        <div className="sticky top-0 z-50 bg-amber-400 px-4 py-2 text-center text-xs font-bold text-tinta">
-          Vista previa — esta fiesta está en borrador y no se ve en la página. Las compras son de prueba.
-        </div>
-      )}
+      <div className="sticky top-0 z-[60]">
+        <AvisoModoPrueba sticky={false} />
+        {!publica && (
+          <div className="border-t border-tinta/20 bg-amber-300 px-4 py-2 text-center text-xs font-bold text-tinta">
+            Vista previa — esta fiesta está en borrador y no se ve en la página. Las compras son de prueba.
+          </div>
+        )}
+      </div>
 
       <div className="mx-auto max-w-6xl lg:grid lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)] lg:gap-12 lg:px-8 lg:pt-8">
         {/* Flyer */}
@@ -114,6 +120,10 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
               <span className="rounded-full bg-amber-400 px-3 py-1.5 font-display text-[10px] font-extrabold tracking-[0.1em] text-tinta">
                 POSTERGADA
               </span>
+            ) : proximamente ? (
+              <span className="rounded-full border border-white/40 bg-noche/70 px-3 py-1.5 font-display text-[10px] font-extrabold tracking-[0.1em] text-white backdrop-blur">
+                PRÓXIMAMENTE
+              </span>
             ) : catalogo.disponibles > 0 ? (
               <span className="rounded-full bg-oro px-3 py-1.5 font-display text-[10px] font-extrabold tracking-[0.1em] text-tinta">
                 EN VENTA{catalogo.disponibles <= 60 ? ` · QUEDAN ${catalogo.disponibles}` : ""}
@@ -156,7 +166,25 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
             )}
           </div>
 
-          {futura && !pausado && (
+          {futura && !pausado && proximamente && (
+            <div className="mt-6 flex flex-col gap-3 rounded-[20px] border border-oro/30 bg-oro/[0.05] p-4">
+              <div className="flex items-center gap-2 text-xs text-white/70">
+                <IconReloj size={15} className="text-oro" />
+                {catalogo.abreEl ? (
+                  <span>
+                    La venta abre el <strong className="text-oro-claro">{ddmm(catalogo.abreEl)}</strong> · {horaCorta(catalogo.abreEl)} hs
+                  </span>
+                ) : (
+                  <span>
+                    Venta: <strong className="text-oro-claro">fecha a confirmar</strong>. Seguinos para enterarte primero.
+                  </span>
+                )}
+              </div>
+              {catalogo.abreEl && <Countdown fecha={catalogo.abreEl} compacto recargarAlTerminar />}
+            </div>
+          )}
+
+          {futura && !pausado && !proximamente && (
             <div className="mt-6 flex flex-col gap-3 rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
               <div className="flex items-center gap-2 text-xs text-white/60">
                 <IconReloj size={15} className="text-oro" />
@@ -185,7 +213,15 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
                 )}
               </div>
             ) : (
-              <CompraEntradas evento={evento} tipos={catalogo.tipos} />
+              <CompraEntradas
+                evento={catalogo.evento}
+                tipos={catalogo.tipos}
+                whatsapp={telefono}
+                fiestaProximamente={proximamente}
+              />
+            )}
+            {!pausado && branding.politicaAnulacion && (
+              <p className="mt-4 text-center text-[11px] leading-relaxed text-white/40">{branding.politicaAnulacion}</p>
             )}
           </section>
 
@@ -214,8 +250,8 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
       </div>
 
       <SiteFooter branding={branding} />
-      {!pausado && <StickyCta precioDesde={catalogo.precioDesde} targetId="comprar" />}
-      {pausado && <WhatsappFab telefono={evento.contactoWhatsapp || branding.contactoWhatsapp} />}
+      {!pausado && !proximamente && <StickyCta precioDesde={catalogo.precioDesde} targetId="comprar" />}
+      {(pausado || proximamente) && <WhatsappFab telefono={telefono} />}
       <span className="sr-only">{catalogo.precioDesde !== null ? `Desde ${formatPrecio(catalogo.precioDesde)}` : ""}</span>
     </main>
   );

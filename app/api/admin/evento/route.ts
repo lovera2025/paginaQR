@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { updateEvento } from "@/lib/db";
 import { adminConEvento, errorJson } from "@/lib/api/admin";
-import { isSlugValido } from "@/lib/entradas/tipos";
+import { isSlugValido, normalizarVentaFiesta } from "@/lib/entradas/tipos";
 
 export async function GET(request: Request) {
   const ctx = await adminConEvento(request);
@@ -23,6 +23,11 @@ export async function PUT(request: Request) {
   if (body.capacidad !== undefined && !(Number(body.capacidad) >= 1)) {
     return errorJson("La capacidad debe ser al menos 1");
   }
+  const venta = normalizarVentaFiesta(body);
+  if ("error" in venta) return errorJson(venta.error);
+  delete body.proximamente;
+  delete body.ventaAbre;
+  Object.assign(body, venta.value);
 
   const result = await updateEvento(ctx.evento.id, body);
   if ("error" in result) return errorJson(result.error);

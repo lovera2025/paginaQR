@@ -32,20 +32,28 @@ SELECT
 FROM data
 ON CONFLICT (id) DO NOTHING;
 
--- Tres tipos por fiesta: Anticipada (hasta 7 días antes), General y VIP.
-INSERT INTO tipos_entrada (evento_id, nombre, descripcion, beneficios, precio, cupo, venta_hasta, estilo, orden)
+-- Tres tipos por fiesta:
+--   Anticipada a la venta hasta 7 días antes;
+--   General "Próximamente": abre sola cuando cierra la anticipada (cuenta regresiva);
+--   VIP "Próximamente, fecha a confirmar" (se abre desde el admin).
+-- Requiere también supabase/migrations/2026_11_modo_prueba_proximamente_anulaciones.sql.
+INSERT INTO tipos_entrada (evento_id, nombre, descripcion, beneficios, precio, cupo, venta_desde, venta_hasta, estilo, orden, proximamente)
 SELECT e.id, t.nombre, t.descripcion, t.beneficios, t.precio, t.cupo,
+       CASE WHEN t.estilo = 'general'
+            THEN ((e.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - 7 + TIME '23:59')
+                 AT TIME ZONE 'America/Argentina/Buenos_Aires'
+       END,
        CASE WHEN t.estilo = 'anticipada'
             THEN ((e.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - 7 + TIME '23:59')
                  AT TIME ZONE 'America/Argentina/Buenos_Aires'
        END,
-       t.estilo, t.orden
+       t.estilo, t.orden, t.proximamente
 FROM eventos e
 CROSS JOIN (
   VALUES
-    ('Anticipada', 'Mismo acceso que la General, a precio promo.', ARRAY[]::TEXT[], 15000, 150, 'anticipada', 0),
-    ('General', 'Acceso a la fiesta toda la noche.', ARRAY[]::TEXT[], 18000, NULL::INT, 'general', 1),
-    ('VIP', 'Sector VIP con barra exclusiva.', ARRAY['Sector VIP', 'Barra exclusiva', 'Ingreso preferencial'], 35000, 40, 'vip', 2)
-) AS t (nombre, descripcion, beneficios, precio, cupo, estilo, orden)
+    ('Anticipada', 'Mismo acceso que la General, a precio promo.', ARRAY[]::TEXT[], 15000, 150, 'anticipada', 0, false),
+    ('General', 'Acceso a la fiesta toda la noche.', ARRAY[]::TEXT[], 18000, NULL::INT, 'general', 1, true),
+    ('VIP', 'Sector VIP con barra exclusiva.', ARRAY['Sector VIP', 'Barra exclusiva', 'Ingreso preferencial'], 35000, 40, 'vip', 2, true)
+) AS t (nombre, descripcion, beneficios, precio, cupo, estilo, orden, proximamente)
 WHERE e.id LIKE 'rec-%'
   AND NOT EXISTS (SELECT 1 FROM tipos_entrada x WHERE x.evento_id = e.id);

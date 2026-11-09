@@ -161,6 +161,9 @@ export async function buildTicketPdf(input: {
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const flyer = await embedImagen(doc, await cargarImagen(evento.flyerUrl, origin));
   const marca = safe((evento.organizadorNombre || branding.nombre || "Junior Eventos").toUpperCase());
+  // Logo oficial (versión clara para el fondo oscuro de la entrada). Si no carga, queda el nombre en texto.
+  const esJunior = /junior\s*eventos/i.test(marca);
+  const logo = esJunior ? await embedImagen(doc, await cargarImagen("/marca/logo-claro.png", origin)) : null;
 
   for (const ticket of tickets) {
     const est = getEstiloEntrada({
@@ -214,7 +217,12 @@ export async function buildTicketPdf(input: {
     if (est.cinta) dibujarCinta(page, safe(etiqueta), bold, est.acento, est.sobreAcento);
     page.pushOperators(popGraphicsState());
 
-    page.drawText(marca, { x: M + 14, y: headerY + 12, size: 8.5, font: bold, color: hex(est.estilo === "vip" ? BRAND.doradoClaro : est.acento) });
+    if (logo) {
+      const lh = 15;
+      page.drawImage(logo, { x: M + 12, y: headerY + 8, width: (logo.width / logo.height) * lh, height: lh });
+    } else {
+      page.drawText(marca, { x: M + 14, y: headerY + 12, size: 8.5, font: bold, color: hex(est.estilo === "vip" ? BRAND.doradoClaro : est.acento) });
+    }
     if (!est.cinta) badge(page, etiqueta, bold, 8.5, W - M - 12, headerY + 9, est.acento, est.sobreAcento);
 
     // Línea de corte
@@ -274,7 +282,7 @@ export async function buildTicketPdf(input: {
     page.drawImage(qr, { x: qx, y: qy, width: qrSize, height: qrSize });
 
     if (ticket.usado || ticket.cancelado) {
-      const sello = ticket.cancelado ? "CANCELADA" : "YA INGRESÓ";
+      const sello = ticket.cancelado ? "ANULADA" : "YA INGRESÓ";
       const color = ticket.cancelado ? "#dc2626" : "#d97706";
       page.drawRectangle({ x: qx - 10, y: qy + qrSize / 2 - 14, width: qrSize + 20, height: 28, color: hex(color), opacity: 0.92, rotate: degrees(0) });
       const tw = bold.widthOfTextAtSize(safe(sello), 14);

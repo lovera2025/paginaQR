@@ -95,7 +95,8 @@ export function VentasGenerales({
               <th className="px-4 py-3 font-semibold">ESTADO</th>
               <th className="px-4 py-3 font-semibold">VENDIDAS / AFORO</th>
               <th className="px-4 py-3 font-semibold">POR TIPO</th>
-              <th className="px-4 py-3 font-semibold">RECAUDADO</th>
+              <th className="px-4 py-3 font-semibold">RECAUDADO (NETO)</th>
+              <th className="px-4 py-3 font-semibold">DEVUELTO</th>
               <th className="px-4 py-3 font-semibold">INGRESARON</th>
             </tr>
           </thead>
@@ -151,6 +152,7 @@ export function VentasGenerales({
                     </div>
                   </td>
                   <td className="px-4 py-3 font-display font-bold text-oro-claro">{formatPrecio(stats.recaudado)}</td>
+                  <td className="px-4 py-3 text-white/60">{stats.reembolsado > 0 ? formatPrecio(stats.reembolsado) : "—"}</td>
                   <td className="px-4 py-3 text-green-300">{stats.ingresaron}</td>
                 </tr>
               );

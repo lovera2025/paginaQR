@@ -5,6 +5,9 @@ import { ImageUploadField } from "@/components/admin/ImageUploadField";
 import { TiposEntradaPanel } from "@/components/admin/TiposEntradaPanel";
 import { BrandingForm } from "@/components/admin/BrandingForm";
 import { VentasGenerales } from "@/components/admin/VentasGenerales";
+import { AnularModal } from "@/components/admin/AnularModal";
+import { ChecklistPruebas } from "@/components/admin/ChecklistPruebas";
+import { MARCA_ISOTIPO } from "@/components/publico/Marca";
 import { getEstiloEntrada } from "@/lib/entradas/estilos";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 import type {
@@ -12,6 +15,7 @@ import type {
   AdminStats,
   Evento,
   HistorialItem,
+  ModoPago,
   Orden,
   Ticket,
 } from "@/types";
@@ -66,6 +70,28 @@ interface MpPagosInfo {
 interface PagosInfo {
   talo: TaloPagosInfo;
   mp: MpPagosInfo;
+  modo?: { simulate: boolean; sandbox: boolean; sinMedios: boolean; appMode: string };
+}
+
+interface ModoCobro {
+  simulate: boolean;
+  sandbox: boolean;
+  sinMedios: boolean;
+}
+
+function ChipModo({ modo }: { modo: ModoPago | null }) {
+  if (modo === "simulado")
+    return <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] text-white/60">SIMULADA</span>;
+  if (modo === "sandbox")
+    return <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] text-amber-300">PRUEBA</span>;
+  return null;
+}
+
+function estadoMedioLabel(m: { enabled: boolean; configured: boolean; environment: "sandbox" | "production" }) {
+  if (!m.enabled) return { texto: "Apagado", clase: "bg-white/10 text-white/50" };
+  if (!m.configured) return { texto: "Falta configurar", clase: "bg-yellow-500/20 text-yellow-300" };
+  if (m.environment === "sandbox") return { texto: "Prueba", clase: "bg-amber-400/20 text-amber-300" };
+  return { texto: "Producción · cobra de verdad", clase: "bg-green-500/20 text-green-400" };
 }
 
 interface HistorialDetalle {
@@ -165,6 +191,9 @@ export function AdminDashboard() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetConfirm, setResetConfirm] = useState("");
+  const [anularOrdenId, setAnularOrdenId] = useState<string | null>(null);
+  const [modoCobro, setModoCobro] = useState<ModoCobro | null>(null);
+  const [pagosMpAdvertencia, setPagosMpAdvertencia] = useState("");
 
   // Nuevo evento
   const [nuevoOpen, setNuevoOpen] = useState(false);
@@ -284,6 +313,14 @@ export function AdminDashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  // Modo de cobro (simulación / prueba / real) para avisos del panel.
+  useEffect(() => {
+    fetch("/api/checkout", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setModoCobro({ simulate: Boolean(d.simulate), sandbox: Boolean(d.sandbox), sinMedios: Boolean(d.sinMedios) }))
+      .catch(() => {});
+  }, [pagosInfo]);
+
   // Cargar historial cuando se abre la pestaña
   useEffect(() => {
     if (tab !== "historial" || historialItems !== null) return;
@@ -343,7 +380,7 @@ export function AdminDashboard() {
   }
 
   async function handleCancel(ticketId: string) {
-    if (!confirm("¿Dar de baja esta entrada?")) return;
+    if (!confirm("¿Dar de baja esta entrada SIN devolver plata? El QR deja de valer. Si el comprador pidió la devolución, usá Compras → Anular.")) return;
     setActionLoading(ticketId);
     try {
       const res = await fetch(`/api/admin/tickets/${ticketId}/cancel`, {
@@ -362,9 +399,6 @@ export function AdminDashboard() {
       setActionLoading(null);
     }
   }
-
-  // Reembolsos deshabilitados temporalmente — reactivar handleRefund al habilitar el botón
-  // async function handleRefund(ordenId: string) { ... }
 
   async function persistEvento(updated: Evento, successMsg?: string) {
     const res = await fetch(`/api/admin/evento?evento=${encodeURIComponent(updated.id)}`, {
@@ -437,7 +471,14 @@ export function AdminDashboard() {
       cerrar:
         "¿Cerrar y archivar esta fiesta? Sale de la página y los datos quedan en Historial.",
     };
-    if (!confirm(messages[accion])) return;
+    let mensaje = messages[accion];
+    if ((accion === "abrir_venta" || accion === "reanudar") && modoCobro && (modoCobro.simulate || modoCobro.sandbox)) {
+      mensaje = `ATENCIÓN: los pagos están en ${modoCobro.simulate ? "SIMULACIÓN (no se cobra nada)" : "MODO PRUEBA (no se cobra de verdad)"}. Antes de vender de verdad, pasá Mercado Pago a Producción en la pestaña Pagos.\n\n${mensaje}`;
+    }
+    if ((accion === "abrir_venta" || accion === "reanudar") && modoCobro?.sinMedios) {
+      mensaje = `ATENCIÓN: no hay ningún medio de pago activo: nadie va a poder pagar. Configurá Mercado Pago en Pagos.\n\n${mensaje}`;
+    }
+    if (!confirm(mensaje)) return;
 
     setActionLoading(accion);
     try {
@@ -633,6 +674,7 @@ export function AdminDashboard() {
 
   async function handleTestMpPagos() {
     setPagosMpError("");
+    setPagosMpAdvertencia("");
     setPagosMpTestOk(null);
     setPagosMpTestLoading(true);
     try {
@@ -648,7 +690,8 @@ export function AdminDashboard() {
         return;
       }
       setPagosMpTestOk(true);
-      showToast("success", data.message ?? "Conexión OK");
+      setPagosMpAdvertencia(data.advertencia ?? "");
+      showToast(data.advertencia ? "error" : "success", data.message ?? "Conexión OK");
     } finally {
       setPagosMpTestLoading(false);
     }
@@ -723,9 +766,10 @@ export function AdminDashboard() {
       <header className="sticky top-0 z-20 border-b border-white/10 bg-noche/90 px-4 py-3 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <a href="/staff" className="flex shrink-0 items-baseline gap-1.5" aria-label="Menú staff">
-              <span className="font-script text-[28px] leading-none text-oro">Junior</span>
-              <span className="hidden font-display text-[10px] font-extrabold tracking-[0.22em] sm:inline">PANEL</span>
+            <a href="/staff" className="flex shrink-0 items-center gap-2" aria-label="Menú staff">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={MARCA_ISOTIPO} alt="" width={28} height={30} />
+              <span className="hidden font-display text-[11px] tracking-[0.22em] sm:inline">PANEL</span>
             </a>
             <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/12 bg-white/[0.04] px-3 py-1.5 sm:max-w-md">
               <label htmlFor="fiesta-admin" className="shrink-0 text-[10px] font-semibold tracking-[0.14em] text-white/45">
@@ -750,6 +794,16 @@ export function AdminDashboard() {
               <span className={`hidden shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold sm:inline-block ${estadoBadgeClass(evento.estado)}`}>
                 {EVENTO_ESTADO_LABELS[evento.estado].split(" —")[0]}
               </span>
+            )}
+            {modoCobro && (modoCobro.simulate || modoCobro.sandbox) && (
+              <button
+                type="button"
+                onClick={() => setTab("pagos")}
+                className="shrink-0 rounded-full bg-amber-400 px-3 py-1 text-[10px] font-extrabold tracking-[0.1em] text-tinta"
+                title="Los pagos no son reales. Tocá para ver Pagos."
+              >
+                {modoCobro.simulate ? "SIMULACIÓN" : "MODO PRUEBA"}
+              </button>
             )}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -824,6 +878,11 @@ export function AdminDashboard() {
                     >
                       {EVENTO_ESTADO_LABELS[evento.estado]}
                     </span>
+                    {evento.proximamente && (
+                      <span className="ml-2 mt-2 inline-block rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/70">
+                        Próximamente{evento.ventaAbre ? ` · abre ${formatFechaCorta(evento.ventaAbre)}` : " · fecha a confirmar"}
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {canResetVentas(evento.estado) && (
@@ -1046,14 +1105,14 @@ export function AdminDashboard() {
               <div className="flex flex-col gap-4">
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                   {[
-                    { label: "Recaudado", value: formatPrecio(stats.recaudado), color: "#f0d389" },
+                    { label: "Recaudado (neto)", value: formatPrecio(stats.recaudado), color: "#f0d389" },
                     { label: "Vendidas", value: `${stats.vendidasActivas} / ${stats.capacidad}`, color: "#fff" },
                     { label: "Ya ingresaron", value: stats.ingresaron, color: "#4ade80" },
                     { label: "Quedan", value: stats.disponibles, color: "#93c5fd" },
                     { label: "Compras", value: stats.totalOrdenes, color: "#fff" },
                     { label: "Sin usar", value: stats.sinUsar, color: "#cbd5e1" },
-                    { label: "Canceladas", value: stats.canceladas, color: "#f87171" },
-                    { label: "Reembolsado", value: formatPrecio(stats.reembolsado), color: "#fbbf24" },
+                    { label: "Anuladas / bajas", value: stats.canceladas, color: "#f87171" },
+                    { label: "Devuelto", value: formatPrecio(stats.reembolsado), color: "#fbbf24" },
                   ].map((card) => (
                     <div key={card.label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
                       <p className="text-xs text-white/50">{card.label}</p>
@@ -1117,6 +1176,7 @@ export function AdminDashboard() {
                   <th className="p-3">Tipo</th>
                   <th className="p-3">Cant.</th>
                   <th className="p-3">Monto</th>
+                  <th className="p-3">Devuelto</th>
                   <th className="p-3">Estado</th>
                   <th className="p-3">Acciones</th>
                 </tr>
@@ -1130,7 +1190,9 @@ export function AdminDashboard() {
                     <td className="p-3">{o.tipoNombre}</td>
                     <td className="p-3">{o.cantidad}</td>
                     <td className="p-3">{formatPrecio(o.montoTotal)}</td>
+                    <td className="p-3 text-white/60">{o.montoReembolsado > 0 ? formatPrecio(o.montoReembolsado) : "—"}</td>
                     <td className="p-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
                       <span
                         className={`rounded-full px-2 py-1 text-xs ${
                           o.estado === "aprobado"
@@ -1142,8 +1204,13 @@ export function AdminDashboard() {
                                 : "bg-red-500/20 text-red-400"
                         }`}
                       >
-                        {o.estado}
+                        {o.estado === "reembolsado" ? "anulada" : o.estado}
                       </span>
+                      {o.estado === "aprobado" && o.montoReembolsado > 0 && (
+                        <span className="rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] text-yellow-300">anulación parcial</span>
+                      )}
+                      <ChipModo modo={o.modoPago} />
+                      </div>
                     </td>
                     <td className="p-3">
                       {o.estado === "aprobado" && (
@@ -1162,12 +1229,12 @@ export function AdminDashboard() {
                             Descargar PDF
                           </a>
                           <button
-                            disabled
-                            className="cursor-not-allowed text-left text-xs text-red-400 opacity-40"
+                            type="button"
+                            onClick={() => setAnularOrdenId(o.id)}
+                            className="text-left text-xs text-red-400 hover:underline"
                           >
-                            Reembolsar
+                            Anular…
                           </button>
-                          <span className="text-xs text-white/30">Deshabilitado temporalmente</span>
                         </div>
                       )}
                     </td>
@@ -1175,7 +1242,7 @@ export function AdminDashboard() {
                 ))}
                 {ordenes.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-white/40">
+                    <td colSpan={9} className="p-8 text-center text-white/40">
                       Sin compras aún
                     </td>
                   </tr>
@@ -1183,6 +1250,18 @@ export function AdminDashboard() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {anularOrdenId && (
+          <AnularModal
+            ordenId={anularOrdenId}
+            onClose={() => setAnularOrdenId(null)}
+            onDone={(msg) => {
+              setAnularOrdenId(null);
+              showToast("success", msg);
+              refresh();
+            }}
+          />
         )}
 
         {/* ── ENTRADAS ────────────────────────────────────── */}
@@ -1222,7 +1301,12 @@ export function AdminDashboard() {
                     <td className="p-3">{t.compradorNombre}</td>
                     <td className="p-3">{t.tipoNombre}</td>
                     <td className="p-3">{t.numeroEntrada}/{t.totalEntradas}</td>
-                    <td className="p-3">{ticketEstadoLabel(t)}</td>
+                    <td className="p-3">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {ticketEstadoLabel(t)}
+                        <ChipModo modo={ordenes.find((o) => o.id === t.ordenId)?.modoPago ?? null} />
+                      </span>
+                    </td>
                     <td className="p-3 text-white/60">
                       {t.usadoAt ? formatFechaCorta(t.usadoAt) : "—"}
                     </td>
@@ -1233,7 +1317,7 @@ export function AdminDashboard() {
                           disabled={actionLoading === t.id}
                           className="text-xs text-red-400 hover:underline disabled:opacity-50"
                         >
-                          {actionLoading === t.id ? "..." : "Dar de baja"}
+                          {actionLoading === t.id ? "..." : "Dar de baja (sin devolver plata)"}
                         </button>
                       )}
                     </td>
@@ -1326,6 +1410,47 @@ export function AdminDashboard() {
               Se muestra en la página de la fiesta cuando pausás ventas. Si lo dejás vacío, se
               usa un texto por defecto.
             </p>
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <label htmlFor="fiesta-venta" className="mb-1 block text-sm font-semibold text-white/80">
+                Venta de la fiesta
+              </label>
+              <select
+                id="fiesta-venta"
+                value={!draft.proximamente ? "venta" : draft.ventaAbre ? "fecha" : "confirmar"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "venta") setDraft({ ...draft, proximamente: false, ventaAbre: null });
+                  else if (v === "confirmar") setDraft({ ...draft, proximamente: true, ventaAbre: null });
+                  else
+                    setDraft({
+                      ...draft,
+                      proximamente: true,
+                      ventaAbre: draft.ventaAbre ?? new Date(Date.now() + 7 * 864e5).toISOString(),
+                    });
+                }}
+                className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+              >
+                <option value="venta">A la venta (según cada tipo de entrada)</option>
+                <option value="fecha">Próximamente · abre en una fecha (con cuenta regresiva)</option>
+                <option value="confirmar">Próximamente · fecha a confirmar</option>
+              </select>
+              {draft.proximamente && draft.ventaAbre && (
+                <input
+                  type="datetime-local"
+                  aria-label="Fecha y hora en que abre la venta"
+                  value={isoToDatetimeLocalAr(draft.ventaAbre)}
+                  onChange={(e) =>
+                    setDraft({ ...draft, ventaAbre: e.target.value ? `${e.target.value}:00-03:00` : draft.ventaAbre })
+                  }
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none [color-scheme:dark]"
+                />
+              )}
+              <p className="mt-2 text-xs text-white/45">
+                En próximamente la fiesta se ve en la página con su flyer, pero sin precios ni botón de compra.
+                {draft.proximamente && draft.ventaAbre ? " Abre sola cuando llega la fecha." : ""}
+                {" "}Acordate de tocar &quot;Guardar cambios&quot;.
+              </p>
+            </div>
             <Field label="Lugar" value={draft.lugar} onChange={(v) => setDraft({ ...draft, lugar: v })} />
             <Field label="Google Maps (URL)" value={draft.mapsUrl} onChange={(v) => setDraft({ ...draft, mapsUrl: v })} />
             <Field label="WhatsApp (54911...)" value={draft.contactoWhatsapp} onChange={(v) => setDraft({ ...draft, contactoWhatsapp: v })} />
@@ -1458,8 +1583,8 @@ export function AdminDashboard() {
                               { label: "Vendidas", value: item.stats.vendidasActivas },
                               { label: "Ingresaron", value: item.stats.ingresaron },
                               { label: "Sin usar", value: item.stats.sinUsar },
-                              { label: "Canceladas", value: item.stats.canceladas },
-                              { label: "Reembolsado", value: formatPrecio(item.stats.reembolsado) },
+                              { label: "Anuladas / bajas", value: item.stats.canceladas },
+                              { label: "Devuelto", value: formatPrecio(item.stats.reembolsado) },
                             ].map((c) => (
                               <div key={c.label} className="rounded-xl border border-white/10 bg-black/30 p-3 text-center">
                                 <p className="text-xs text-white/50">{c.label}</p>
@@ -1563,16 +1688,73 @@ export function AdminDashboard() {
         {tab === "pagos" && (
           <div className="max-w-xl space-y-6">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <h2 className="text-base font-bold">Cobros de entradas</h2>
-              <p className="mt-2 text-sm text-white/60">
-                Configurá acá cómo cobrar. No hace falta entrar a Vercel. Activá los
-                métodos que quieras; el comprador elige al pagar.
+              <h2 className="text-base font-bold">Estado de cobros</h2>
+              <p className="mt-1 text-sm text-white/60">
+                Configurá acá cómo cobrar. Activá los métodos que quieras; el comprador elige al pagar.
               </p>
+              {pagosInfo && (
+                <div className="mt-4 space-y-2">
+                  {[
+                    { nombre: "Mercado Pago (tarjeta)", m: pagosInfo.mp },
+                    { nombre: "Talo (transferencia)", m: pagosInfo.talo },
+                  ].map(({ nombre, m }) => {
+                    const e = estadoMedioLabel(m);
+                    return (
+                      <div key={nombre} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 px-4 py-2.5">
+                        <span className="text-sm">{nombre}</span>
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${e.clase}`}>{e.texto}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {pagosInfo?.modo?.simulate && (
+                <p className="mt-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+                  <strong>Simulación:</strong> los compradores ven botones para aprobar o rechazar el pago sin pagar nada.
+                  Sirve solo para probar en tu compu.
+                </p>
+              )}
+              {pagosInfo?.modo?.sandbox && (
+                <p className="mt-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+                  <strong>Modo prueba:</strong> la página muestra &quot;MODO PRUEBA&quot; y los pagos no son reales. Antes de
+                  abrir la venta pasá a Producción.
+                </p>
+              )}
+              {pagosInfo?.modo?.sinMedios && (
+                <p className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                  <strong>Sin medios de pago:</strong> nadie puede comprar. Configurá Mercado Pago abajo.
+                </p>
+              )}
             </div>
 
-            <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
-              Los reembolsos están temporalmente deshabilitados.
-            </div>
+            <details className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <summary className="cursor-pointer text-base font-bold">Cómo probar Mercado Pago sin plata real</summary>
+              <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-white/70">
+                <li>
+                  En{" "}
+                  <a href="https://www.mercadopago.com.ar/developers/panel/app" target="_blank" rel="noreferrer" className="underline">
+                    mercadopago.com.ar/developers
+                  </a>{" "}
+                  → tu app → <strong>Cuentas de prueba</strong>: creá un <strong>Vendedor</strong> y un <strong>Comprador</strong> (Argentina).
+                </li>
+                <li>Entrá al panel con el Vendedor de prueba y copiá sus credenciales de producción (Access Token).</li>
+                <li>Pegalo abajo con ambiente <strong>Prueba (sandbox)</strong>, guardá y tocá Probar: tiene que decir &quot;token de PRUEBA&quot;.</li>
+                <li>
+                  Comprá en la página y pagá iniciando sesión como el <strong>Comprador de prueba</strong> (en una ventana de
+                  incógnito).
+                </li>
+                <li>
+                  Tarjetas de prueba: Mastercard <code>5031 7557 3453 0604</code> · Visa <code>4509 9535 6623 3704</code> · CVV{" "}
+                  <code>123</code> · vencimiento <code>11/30</code> · DNI <code>12345678</code>.
+                </li>
+                <li>
+                  Nombre del titular: <code>APRO</code> = pago aprobado · <code>OTHE</code> = rechazado · <code>CONT</code> = pendiente.
+                </li>
+                <li>Cuando todo ande: pegá el token real del jefe con ambiente Producción y hacé Reiniciar ventas en cada fiesta.</li>
+              </ol>
+            </details>
+
+            <ChecklistPruebas />
 
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
               <h2 className="mb-2 text-base font-bold">Transferencia — Talo Pay</h2>
@@ -1796,9 +1978,14 @@ export function AdminDashboard() {
                     )}
                   </div>
 
-                  {pagosMpTestOk === true && (
+                  {pagosMpTestOk === true && !pagosMpAdvertencia && (
                     <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-300">
                       Conexión con Mercado Pago verificada correctamente.
+                    </div>
+                  )}
+                  {pagosMpAdvertencia && (
+                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                      {pagosMpAdvertencia}
                     </div>
                   )}
 

@@ -2,6 +2,7 @@ import {
   approveOrden,
   getOrden,
   getOrdenByPaymentId,
+  registrarActividad,
   rejectOrden,
 } from "@/lib/db";
 import { mpFetch } from "@/lib/mercadopago/client";
@@ -41,9 +42,11 @@ export async function processMpPayment(
 
   const orden = await getOrden(ordenId);
   if (!orden) return { error: "Orden no encontrada" };
+  const modo = payment.live_mode === false ? "sandbox" : payment.live_mode === true ? "produccion" : undefined;
+  const ref = `MP ${mpPaymentId} · compra ${ordenId.slice(0, 8)}`;
 
   if (orden.estado === "aprobado") {
-    await approveOrden(ordenId, mpPaymentId, "mp");
+    await approveOrden(ordenId, mpPaymentId, "mp", modo);
     return { ok: true };
   }
 
@@ -52,14 +55,24 @@ export async function processMpPayment(
   }
 
   if (payment.status === "approved") {
-    const result = await approveOrden(ordenId, mpPaymentId, "mp");
-    if ("error" in result) return { error: result.error };
+    const pagado = Number(payment.transaction_amount ?? orden.montoTotal);
+    if (pagado + 0.5 < orden.montoTotal) {
+      await registrarActividad("pago", `${ref} → monto menor al de la compra ($${pagado} de $${orden.montoTotal}), no se aprobó`);
+      return { error: "El monto pagado no coincide con la compra" };
+    }
+    const result = await approveOrden(ordenId, mpPaymentId, "mp", modo);
+    if ("error" in result) {
+      await registrarActividad("pago", `${ref} → pago aprobado pero no se pudieron emitir las entradas: ${result.error}`);
+      return { error: result.error };
+    }
+    await registrarActividad("pago", `${ref} → aprobado${modo === "sandbox" ? " (PRUEBA)" : ""}`);
     return { ok: true };
   }
 
   if (payment.status === "rejected" || payment.status === "cancelled") {
     const result = await rejectOrden(ordenId);
     if ("error" in result) return { error: result.error };
+    await registrarActividad("pago", `${ref} → ${payment.status === "rejected" ? "rechazado" : "cancelado"}`);
     return { ok: true };
   }
 

@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
-  title: "Staff — Junior Eventos",
+  title: "Login/Staff — Junior Eventos",
   manifest: "/manifest.json",
   robots: { index: false, follow: false },
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "JE Staff" },

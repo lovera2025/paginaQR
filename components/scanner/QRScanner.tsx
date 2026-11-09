@@ -98,8 +98,15 @@ function Resultado({
         {evento && <span className="rounded-full bg-black/30 px-2.5 py-1">{diaCorto(evento.fecha)}</span>}
       </div>
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+        {result.prueba && (
+          <span className="rounded-full bg-amber-400 px-3 py-1 font-display text-[11px] font-extrabold tracking-[0.12em] text-[#1a1206]">
+            ENTRADA DE PRUEBA
+          </span>
+        )}
         <Icono status={result.status} />
-        <h1 className="mt-2 font-display text-[30px] font-black leading-tight">{p.titulo}</h1>
+        <h1 className="mt-2 font-display text-[30px] font-black leading-tight">
+          {result.status === "cancelada" && t?.motivoCancelacion?.startsWith("Anulación") ? "Entrada anulada" : p.titulo}
+        </h1>
 
         {result.status === "usada" && t?.usadoAt && (
           <p className="font-display text-4xl font-extrabold">{horaCorta(t.usadoAt)} hs</p>
@@ -140,7 +147,7 @@ function Resultado({
           {result.status === "usada"
             ? "Este QR ya se usó. No vuelve a validar."
             : result.status === "cancelada"
-              ? `No habilita el ingreso.${t?.motivoCancelacion ? ` Motivo: ${t.motivoCancelacion}.` : ""}`
+              ? `No habilita el ingreso.${t?.motivoCancelacion ? ` Motivo: ${t.motivoCancelacion.replace(/^Anulación:\s*/, "")}.` : ""}`
               : result.status === "otro_evento"
                 ? "No se marcó como usada. Verificá la fecha con la persona."
                 : result.status === "invalido"

@@ -37,7 +37,7 @@ function QrImagen({ ticketId }: { ticketId: string }) {
 }
 
 function estadoTicket(t: Ticket): { texto: string; color: string } {
-  if (t.cancelado) return { texto: "Cancelada", color: "#f87171" };
+  if (t.cancelado) return { texto: t.reembolsado || t.motivoCancelacion?.startsWith("Anulación") ? "Anulada" : "Dada de baja", color: "#f87171" };
   if (t.usado) return { texto: `Ya ingresó${t.usadoAt ? ` · ${horaCorta(t.usadoAt)}` : ""}`, color: "#fbbf24" };
   return { texto: "Lista para usar", color: "#4ade80" };
 }
@@ -172,8 +172,11 @@ export function TicketQrPanel({ orden }: { orden: Orden }) {
                 ticket.cancelado ? (
                   <div className="flex h-[220px] w-[220px] flex-col items-center justify-center gap-2 bg-red-50 text-center text-red-700">
                     <IconCruz size={40} />
-                    <p className="px-4 text-sm font-bold">Entrada cancelada</p>
-                    {ticket.motivoCancelacion && <p className="px-4 text-[11px]">{ticket.motivoCancelacion}</p>}
+                    <p className="px-4 text-sm font-bold">{estadoTicket(ticket).texto}</p>
+                    {ticket.motivoCancelacion && (
+                      <p className="px-4 text-[11px]">{ticket.motivoCancelacion.replace(/^Anulación:\s*/, "")}</p>
+                    )}
+                    <p className="px-5 text-[11px] leading-snug">Este QR no habilita el ingreso.</p>
                   </div>
                 ) : ticket.usado ? (
                   <div className="flex h-[220px] w-[220px] flex-col items-center justify-center gap-2 bg-amber-50 text-center text-amber-700">

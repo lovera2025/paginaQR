@@ -5,10 +5,16 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { TicketQrPanel } from "@/components/comprar/TicketQrPanel";
-import { IconCheck, IconReloj } from "@/components/publico/iconos";
+import { IconCheck, IconReloj, IconWhatsapp } from "@/components/publico/iconos";
+import { BarraModoPrueba } from "@/components/publico/BarraModoPrueba";
+import { avisoModoPrueba } from "@/lib/payments/aviso";
+import { whatsappHref } from "@/lib/utils";
 import type { Orden } from "@/types";
 
-type OrdenConEvento = Orden & { evento: { nombre: string; slug: string } | null };
+type OrdenConEvento = Orden & {
+  evento: { nombre: string; slug: string; contactoWhatsapp?: string } | null;
+  contacto?: { whatsapp: string; politicaAnulacion: string };
+};
 
 function ExitoContent() {
   const searchParams = useSearchParams();
@@ -145,6 +151,26 @@ function ExitoContent() {
 
       <TicketQrPanel orden={orden} />
 
+      {orden.contacto?.whatsapp && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-center">
+          <p className="text-xs leading-relaxed text-white/55">{orden.contacto.politicaAnulacion}</p>
+          <a
+            href={
+              whatsappHref(
+                orden.contacto.whatsapp,
+                `Hola! Quiero anular mi compra ${orden.id.slice(0, 8).toUpperCase()} (${orden.cantidad} × ${orden.tipoNombre}${orden.evento ? ` · ${orden.evento.nombre}` : ""}) a nombre de ${orden.compradorNombre}.`
+              ) ?? "#"
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-white/75 underline hover:text-white"
+          >
+            <IconWhatsapp size={15} />
+            ¿Necesitás anular? Escribinos
+          </a>
+        </div>
+      )}
+
       <div className="text-center">
         <Link href="/" className="text-sm text-white/60 underline hover:text-white">
           Ver otras fiestas
@@ -154,9 +180,22 @@ function ExitoContent() {
   );
 }
 
+function AvisoExito() {
+  const [texto, setTexto] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/checkout", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setTexto(avisoModoPrueba({ simulate: Boolean(d.simulate), sandbox: Boolean(d.sandbox) })))
+      .catch(() => {});
+  }, []);
+  return <BarraModoPrueba texto={texto} />;
+}
+
 export default function ExitoPage() {
   return (
-    <main className="min-h-screen bg-noche px-5 py-10">
+    <main className="min-h-screen bg-noche pb-10">
+      <AvisoExito />
+      <div className="px-5 pt-10">
       <Suspense
         fallback={
           <div className="flex justify-center pt-16">
@@ -166,6 +205,7 @@ export default function ExitoPage() {
       >
         <ExitoContent />
       </Suspense>
+      </div>
     </main>
   );
 }

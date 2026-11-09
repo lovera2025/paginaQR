@@ -1,11 +1,17 @@
-// Genera los íconos de la app de staff (PWA) en /public.
-// Uso: node scripts/make-icons.mjs   (requiere la devDependency "sharp")
+// Genera los íconos de la app de staff (PWA) y el favicon.
+// Uso:
+//   node scripts/make-icons.mjs --from public/marca/isotipo-claro.png   (isotipo de la marca sobre negro)
+//   node scripts/make-icons.mjs                                          (ícono genérico de entrada dorada)
+// Requiere la devDependency "sharp".
 import sharp from "sharp";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = (f) => path.join(root, "public", f);
+const fromIdx = process.argv.indexOf("--from");
+const from = fromIdx > -1 ? path.resolve(root, process.argv[fromIdx + 1]) : null;
+const FONDO = { r: 5, g: 5, b: 8, alpha: 1 };
 
 // Entrada dorada con muesca y corona, sobre fondo negro. Solo trazos (sin fuentes).
 function svg({ size, padding }) {
@@ -35,14 +41,32 @@ function svg({ size, padding }) {
 </svg>`;
 }
 
+/** Isotipo centrado sobre fondo negro, con `margen` (0–0.5) de aire a cada lado. */
+async function desdeIsotipo(size, margen) {
+  const lado = Math.round(size * (1 - 2 * margen));
+  const logo = await sharp(from).resize({ width: lado, height: lado, fit: "inside" }).toBuffer();
+  const m = await sharp(logo).metadata();
+  return sharp({ create: { width: size, height: size, channels: 4, background: FONDO } })
+    .composite([{ input: logo, left: Math.round((size - m.width) / 2), top: Math.round((size - m.height) / 2) }])
+    .png();
+}
+
 const tareas = [
-  { file: "icon-192.png", size: 192, padding: 40 },
-  { file: "icon-512.png", size: 512, padding: 40 },
-  { file: "icon-maskable-512.png", size: 512, padding: 96 },
-  { file: "apple-touch-icon.png", size: 180, padding: 40 },
+  { file: "icon-192.png", size: 192, padding: 40, margen: 0.14 },
+  { file: "icon-512.png", size: 512, padding: 40, margen: 0.14 },
+  // Maskable: Android recorta en círculo, el logo tiene que quedar dentro del 80 % central.
+  { file: "icon-maskable-512.png", size: 512, padding: 96, margen: 0.22 },
+  { file: "apple-touch-icon.png", size: 180, padding: 40, margen: 0.14 },
 ];
 
 for (const t of tareas) {
-  await sharp(Buffer.from(svg(t))).png().toFile(out(t.file));
+  const img = from ? await desdeIsotipo(t.size, t.margen) : sharp(Buffer.from(svg(t))).png();
+  await img.toFile(out(t.file));
   console.log("✓", t.file);
+}
+
+if (from) {
+  // Favicon de la web (Next.js lo toma solo de app/icon.png).
+  await (await desdeIsotipo(64, 0.06)).toFile(path.join(root, "app", "icon.png"));
+  console.log("✓ app/icon.png");
 }
