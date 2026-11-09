@@ -9,10 +9,11 @@ import { IconCheck, IconReloj, IconWhatsapp } from "@/components/publico/iconos"
 import { BarraModoPrueba } from "@/components/publico/BarraModoPrueba";
 import { avisoModoPrueba } from "@/lib/payments/aviso";
 import { whatsappHref } from "@/lib/utils";
+import { guardarCompra } from "@/lib/entradas/guardadas";
 import type { Orden } from "@/types";
 
 type OrdenConEvento = Orden & {
-  evento: { nombre: string; slug: string; contactoWhatsapp?: string } | null;
+  evento: { nombre: string; slug: string; fecha?: string; contactoWhatsapp?: string } | null;
   contacto?: { whatsapp: string; politicaAnulacion: string };
 };
 
@@ -59,6 +60,16 @@ function ExitoContent() {
         }
         setOrden(r.orden);
         if (r.orden.estado === "aprobado" || r.orden.estado === "reembolsado") {
+          if (r.orden.estado === "aprobado") {
+            // Para encontrarlas después en "Mis entradas" desde este mismo dispositivo.
+            guardarCompra({
+              ordenId: r.orden.id,
+              evento: r.orden.evento?.nombre ?? "Tu compra",
+              fecha: r.orden.evento?.fecha ?? null,
+              tipo: r.orden.tipoNombre ?? "Entrada",
+              cantidad: r.orden.cantidad,
+            });
+          }
           setEstado("aprobado");
           return;
         }
@@ -131,7 +142,9 @@ function ExitoContent() {
           Tu código de compra: <strong className="font-mono tracking-[0.12em] text-oro-claro">{codigo}</strong>
         </p>
         <p className="text-xs text-white/60">
-          Te escribimos a <strong className="text-white/85">{orden.compradorEmail}</strong> para coordinar la devolución.
+          {wa
+            ? "Escribinos por WhatsApp con tu código para coordinar la devolución."
+            : <>Te contactamos a <strong className="text-white/85">{orden.compradorEmail}</strong> para coordinar la devolución.</>}
         </p>
         {wa && (
           <a href={wa} target="_blank" rel="noopener noreferrer" className="btn-oro h-12 px-6 text-sm">
@@ -187,7 +200,11 @@ function ExitoContent() {
               {" "}para <strong className="text-white">{orden.evento.nombre}</strong>
             </>
           ) : null}
-          . También te las mandamos a <strong className="text-white">{orden.compradorEmail}</strong>.
+          .
+        </p>
+        <p className="rounded-xl border border-oro/35 bg-oro/[0.08] px-4 py-2.5 text-[13px] leading-relaxed text-white/85">
+          <strong className="text-oro-claro">Descargá el PDF</strong> o sacale captura a cada QR: no te llega por mail. En este
+          dispositivo también las encontrás en <Link href="/mis-entradas" className="font-semibold text-white underline">Mis entradas</Link>.
         </p>
       </div>
 

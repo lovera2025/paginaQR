@@ -209,7 +209,7 @@ export function TicketQrPanel({ orden }: { orden: Orden }) {
       <div className="tarjeta flex flex-col gap-1.5 p-4">
         <p className="text-[13px] font-semibold">En la puerta</p>
         <p className="text-xs leading-relaxed text-white/60">
-          Mostrá el QR desde el PDF, el mail o esta pantalla. Cada QR entra a una sola persona, una sola vez. No lo
+          Mostrá el QR desde el PDF, una captura o esta pantalla. Cada QR entra a una sola persona, una sola vez. No lo
           publiques en redes.
         </p>
       </div>

@@ -15,7 +15,7 @@ const PREGUNTAS = [
   },
   {
     q: "¿Dónde está mi entrada?",
-    a: "Aparece en pantalla apenas se confirma el pago, la podés descargar en PDF y además te llega por mail. Si no ves el mail, revisá Spam o Promociones.",
+    a: "Aparece en pantalla apenas se confirma el pago: descargá el PDF y guardalo en el celular (o sacale captura al QR). Si cerraste la pantalla, entrá a “Mis entradas” desde el mismo celular o computadora con el que compraste. Si no la encontrás, escribinos por WhatsApp con tu nombre y te la pasamos.",
   },
   {
     q: "¿Qué pasa si alguien copia mi QR?",

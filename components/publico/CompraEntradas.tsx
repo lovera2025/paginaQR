@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Evento, PaymentMethod, TipoEntradaDisponible } from "@/types";
-import { ddmm, formatPrecio, whatsappHref } from "@/lib/utils";
+import { ddmm, formatPrecio, sugerirEmail, whatsappHref } from "@/lib/utils";
 import { CuentaTexto } from "./Countdown";
 import { IconCorona, IconWhatsapp } from "./iconos";
 
@@ -170,9 +170,14 @@ export function CompraEntradas({
   const [cantidad, setCantidad] = useState(1);
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
+  // Aviso de mail mal escrito: se muestra al salir del campo (o al intentar seguir) y hasta que elija.
+  const [emailTocado, setEmailTocado] = useState(false);
+  const [emailConfirmado, setEmailConfirmado] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
+  const avisoEmailRef = useRef<HTMLDivElement>(null);
+  const sugerencia = emailConfirmado === email.trim() ? null : sugerirEmail(email);
 
   const tipo = visibles.find((t) => t.id === tipoId) ?? null;
   const max = tipo ? Math.max(1, Math.min(10, tipo.disponibles)) : 10;
@@ -191,6 +196,12 @@ export function CompraEntradas({
     e.preventDefault();
     if (!tipo) {
       setError("Elegí un tipo de entrada");
+      return;
+    }
+    if (sugerencia) {
+      // Antes de crear la compra: que confirme el mail (si está mal, no lo podemos contactar).
+      setEmailTocado(true);
+      avisoEmailRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
     setLoading(true);
@@ -308,7 +319,7 @@ export function CompraEntradas({
           </div>
           <div className="flex flex-col gap-1.5">
             <label htmlFor="email" className="text-xs font-semibold text-white/65">
-              Email (ahí te mandamos las entradas)
+              Email
             </label>
             <input
               id="email"
@@ -318,10 +329,44 @@ export function CompraEntradas({
               inputMode="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              onBlur={() => setEmailTocado(true)}
               className="campo"
               placeholder="tu@email.com"
+              aria-describedby={sugerencia && emailTocado ? "email-sugerencia" : undefined}
             />
-            <p className="text-xs text-white/55">Revisá que esté bien escrito. Si no te llega, mirá en Spam o Promociones.</p>
+            {sugerencia && emailTocado ? (
+              <div
+                ref={avisoEmailRef}
+                id="email-sugerencia"
+                role="alert"
+                className="flex flex-col gap-2.5 rounded-xl border border-oro/40 bg-oro/[0.08] px-3.5 py-3"
+              >
+                <p className="text-sm text-white/85">
+                  ¿Quisiste decir <strong className="break-all text-oro-claro">{sugerencia}</strong>?
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail(sugerencia);
+                      setEmailConfirmado(sugerencia);
+                    }}
+                    className="min-h-[40px] rounded-full bg-oro px-4 text-sm font-semibold text-tinta transition hover:brightness-110"
+                  >
+                    Sí, corregir
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEmailConfirmado(email.trim())}
+                    className="min-h-[40px] rounded-full border border-white/25 px-4 text-sm text-white/80 transition hover:border-white/45"
+                  >
+                    No, está bien así
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-white/55">Solo para contactarte si hay algún problema con tu compra. Las entradas te aparecen en pantalla.</p>
+            )}
           </div>
 
           <AnimatePresence mode="wait">

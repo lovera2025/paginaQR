@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { formatPrecio } from "@/lib/utils";
-import { IconBanco, IconTarjeta, IconAtras } from "@/components/publico/iconos";
+import { linkPagoVenceEl } from "@/lib/entradas/tipos";
+import { IconBanco, IconTarjeta, IconAtras, IconReloj } from "@/components/publico/iconos";
 import { BarraModoPrueba } from "@/components/publico/BarraModoPrueba";
 import { avisoModoPrueba } from "@/lib/payments/aviso";
 import type { Orden, PaymentMethod } from "@/types";
@@ -13,6 +14,56 @@ import type { Orden, PaymentMethod } from "@/types";
 type Resumen = Orden & {
   evento: { nombre: string; slug: string; fecha: string; lugar: string; flyerUrl: string; colorSecundario: string } | null;
 };
+
+/** Segundos que faltan para que venza el tiempo de pago (null mientras no se sabe). */
+function useSegundosRestantes(venceEl: Date | null): number | null {
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => {
+    if (!venceEl) return;
+    const id = setInterval(() => setAhora(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [venceEl]);
+  if (!venceEl) return null;
+  return Math.max(0, Math.floor((venceEl.getTime() - ahora) / 1000));
+}
+
+function RelojReserva({ segundos }: { segundos: number }) {
+  const mm = String(Math.floor(segundos / 60)).padStart(2, "0");
+  const ss = String(segundos % 60).padStart(2, "0");
+  const poco = segundos <= 120;
+  return (
+    <p
+      role="timer"
+      aria-live={poco ? "polite" : "off"}
+      className={`mb-6 flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm ${
+        poco ? "border-amber-400/50 bg-amber-400/10 text-amber-200" : "border-white/10 bg-white/[0.04] text-white/75"
+      }`}
+    >
+      <IconReloj size={16} />
+      Te guardamos tus entradas:{" "}
+      <strong className="font-mono text-base tabular-nums text-white">
+        {mm}:{ss}
+      </strong>
+    </p>
+  );
+}
+
+function ReservaVencida({ volverHref }: { volverHref: string }) {
+  return (
+    <div className="mx-auto flex max-w-md flex-col items-center gap-4 text-center">
+      <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-amber-400/60 bg-amber-400/10 text-amber-300">
+        <IconReloj size={30} />
+      </span>
+      <h1 className="font-display text-2xl font-extrabold">Se terminó el tiempo para pagar</h1>
+      <p className="text-sm leading-relaxed text-white/70">
+        No se cobró nada y las entradas se liberaron. Si quedan, las podés elegir de nuevo.
+      </p>
+      <Link href={volverHref} className="btn-oro mt-2 h-12 px-6 text-sm">
+        Elegir de nuevo
+      </Link>
+    </div>
+  );
+}
 
 function ResumenCompra({ r }: { r: Resumen | null }) {
   if (!r) return null;
@@ -59,6 +110,9 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [sinMedios, setSinMedios] = useState(false);
   const volverHref = resumen?.evento ? `/fiesta/${resumen.evento.slug}` : "/";
+  const venceEl = useMemo(() => (resumen?.createdAt ? linkPagoVenceEl(resumen) : null), [resumen]);
+  const segundos = useSegundosRestantes(venceEl);
+  const vencida = segundos === 0;
 
   useEffect(() => {
     if (!ordenId) return;
@@ -269,6 +323,12 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
     );
   }
 
+  // Pasó el tiempo para empezar a pagar: se avisa antes de que toque "Pagar" y le dé error.
+  // (Si ya generó la transferencia, la pantalla de Talo sigue esperando el pago.)
+  if (vencida && !payment && !redirectingMp) {
+    return <ReservaVencida volverHref={volverHref} />;
+  }
+
   if (loading || redirectingMp) {
     return (
       <div className="text-center">
@@ -306,6 +366,7 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
         </div>
 
         <ResumenCompra r={resumen} />
+        {segundos !== null && <RelojReserva segundos={segundos} />}
         <h1 className="mb-2 font-display text-2xl font-extrabold">Confirmar pago</h1>
         <p className="mb-8 text-white/60">Elegí el resultado para probar el flujo</p>
 
@@ -343,9 +404,10 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
     return (
       <div className="mx-auto max-w-lg">
         <ResumenCompra r={resumen} />
+        {segundos !== null && <RelojReserva segundos={segundos} />}
         <h1 className="mb-2 text-center font-display text-2xl font-extrabold">¿Cómo querés pagar?</h1>
         <p className="mb-8 text-center text-sm text-white/60">
-          Apenas se confirme el pago, tus entradas con QR aparecen en pantalla y te llegan por mail.
+          Apenas se confirme el pago, tus entradas con QR aparecen en pantalla para descargar.
         </p>
 
         {error && (

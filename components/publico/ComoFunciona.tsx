@@ -9,7 +9,7 @@ const PASOS = [
   { t: "Pagá online", d: "Mercado Pago o transferencia. Sin crear cuenta, en menos de un minuto." },
   {
     t: "Mostrá tu QR en la puerta",
-    d: "Aparece al instante, te llega por mail y la descargás en PDF. Cada QR vale una sola vez.",
+    d: "Aparece al instante en pantalla y la descargás en PDF. Cada QR vale una sola vez.",
   },
 ];
 

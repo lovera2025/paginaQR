@@ -205,6 +205,25 @@ describe("Supabase de a páginas", () => {
   it("si una página falla, avisa en vez de contar de menos", async () => {
     await expect(traerTodo(async () => ({ data: null, error: { message: "timeout" } }))).rejects.toThrow("timeout");
   });
+
+  it("un corte de red momentáneo se reintenta; un error de la consulta no", async () => {
+    let intentos = 0;
+    const filas = await traerTodo<number>(async () => {
+      intentos++;
+      return intentos === 1 ? { data: null, error: { message: "TypeError: fetch failed" } } : { data: [1, 2], error: null };
+    });
+    expect(filas).toEqual([1, 2]);
+    expect(intentos).toBe(2);
+
+    let pedidos = 0;
+    await expect(
+      traerTodo(async () => {
+        pedidos++;
+        return { data: null, error: { message: 'column "x" does not exist' } };
+      })
+    ).rejects.toThrow("does not exist");
+    expect(pedidos).toBe(1);
+  });
 });
 
 describe("tope de pedidos por IP", () => {

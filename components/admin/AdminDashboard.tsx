@@ -431,7 +431,7 @@ export function AdminDashboard() {
         showToast("error", data.error ?? "No se pudo consultar");
         return;
       }
-      if (data.orden?.estado === "aprobado") showToast("success", "Estaba paga: entradas emitidas y mail enviado");
+      if (data.orden?.estado === "aprobado") showToast("success", "Estaba paga: entradas emitidas (las ve en su pantalla o le pasás el PDF)");
       else if (data.orden?.problema === "pago_sin_cupo") showToast("error", "Pagó pero ya no quedaban entradas: hay que devolverle la plata");
       else if (data.error) showToast("error", data.error);
       else showToast("success", "Todavía no hay un pago aprobado para esta compra");

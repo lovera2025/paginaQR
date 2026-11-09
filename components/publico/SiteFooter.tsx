@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Branding } from "@/types";
 import { instagramHref, whatsappHref } from "@/lib/utils";
 import { Marca } from "./Marca";
-import { IconCandado, IconInstagram, IconWhatsapp } from "./iconos";
+import { IconCandado, IconInstagram, IconQr, IconWhatsapp } from "./iconos";
 
 export function SiteFooter({ branding }: { branding: Branding }) {
   const ig = instagramHref(branding.contactoInstagram);
@@ -32,17 +32,26 @@ export function SiteFooter({ branding }: { branding: Branding }) {
             </a>
           )}
         </div>
-        <div className="flex items-center justify-between gap-4 sm:justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 sm:justify-end">
           <p className="text-[11px] text-white/35">
             © {new Date().getFullYear()} {branding.nombre}
           </p>
-          <Link
-            href="/staff"
-            className="inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-[12px] text-white/45 transition hover:bg-white/5 hover:text-white/80"
-          >
-            <IconCandado size={14} />
-            Login/Staff
-          </Link>
+          <div className="-mx-3 flex items-center">
+            <Link
+              href="/mis-entradas"
+              className="inline-flex h-11 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[12px] text-white/60 transition hover:bg-white/5 hover:text-white"
+            >
+              <IconQr size={14} />
+              Mis entradas
+            </Link>
+            <Link
+              href="/staff"
+              className="inline-flex h-11 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[12px] text-white/45 transition hover:bg-white/5 hover:text-white/80"
+            >
+              <IconCandado size={14} />
+              Login/Staff
+            </Link>
+          </div>
         </div>
       </div>
     </footer>

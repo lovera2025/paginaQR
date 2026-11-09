@@ -8,6 +8,7 @@ import { diaCorto, textoMedios } from "@/lib/utils";
 import { Countdown } from "./Countdown";
 import { IconCandado, IconFlecha } from "./iconos";
 import { Marca } from "./Marca";
+import { AvisoMisEntradas } from "./MisEntradasLista";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
@@ -63,6 +64,7 @@ export function HomeHero({
           </a>
         </nav>
       </header>
+      <AvisoMisEntradas />
 
       <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 pb-10 pt-7 sm:px-8 sm:pt-16 lg:grid-cols-[1.1fr_1fr] lg:pb-16">
         <div className="flex flex-col items-center text-center lg:items-start lg:text-left">

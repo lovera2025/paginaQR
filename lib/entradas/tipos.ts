@@ -392,13 +392,13 @@ export function buildCatalogo(
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-/** Nombre y mail del comprador: el mail es por donde le llegan las entradas. */
+/** Nombre y mail del comprador (el mail es un dato de contacto: las entradas se entregan en pantalla y PDF). */
 export function validarDatosComprador(nombre: string, email: string): string | null {
   const n = nombre.trim();
   const e = email.trim();
   if (!n || !e) return "Nombre y email son obligatorios";
   if (n.length > 80) return "El nombre es demasiado largo";
-  if (e.length > 120 || !EMAIL_RE.test(e)) return "Revisá el email: ahí te llegan las entradas";
+  if (e.length > 120 || !EMAIL_RE.test(e)) return "Revisá el email: parece mal escrito";
   return null;
 }
 

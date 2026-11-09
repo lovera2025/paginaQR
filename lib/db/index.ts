@@ -120,19 +120,12 @@ export async function approveOrden(
   modoPago?: ModoPago
 ) {
   const modo = modoPago ?? (await resolverModoPago(paymentMethod));
-  const result = sb()
+  // Sin mail de confirmación (decisión 9 nov): las entradas se entregan en pantalla + PDF, y el
+  // comprador habla con el organizador por WhatsApp. Para volver a mandarlo hace falta un dominio
+  // verificado en Resend y llamar acá a notifyOrdenAprobada (lib/email/notify.ts).
+  return sb()
     ? await supabase.approveOrden(ordenId, paymentId, paymentMethod, modo)
     : await mock.approveOrden(ordenId, paymentId, paymentMethod, modo);
-
-  if (!("error" in result) && !result.orden.emailSentAt) {
-    try {
-      const { notifyOrdenAprobada } = await import("@/lib/email/notify");
-      await notifyOrdenAprobada(result.orden.id);
-    } catch (error) {
-      console.error("[EMAIL] No se pudo enviar la confirmación:", error);
-    }
-  }
-  return result;
 }
 
 export async function getOrdenByPaymentId(paymentId: string) {

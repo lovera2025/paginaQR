@@ -219,6 +219,30 @@ export function QRScanner() {
     const scanner = new Html5Qrcode(SCANNER_ID);
     scannerRef.current = scanner;
 
+    // stop() tira un error (sin promesa) si la cámara no está andando: pasa si no arrancó
+    // (compu sin cámara, permiso negado) o si todavía estaba arrancando al cambiar de fiesta.
+    const apagar = () => {
+      try {
+        if (scanner.isScanning) {
+          scanner
+            .stop()
+            .catch(() => {})
+            .finally(() => {
+              try {
+                scanner.clear();
+              } catch {
+                /* ya estaba limpio */
+              }
+            });
+        } else {
+          scanner.clear();
+        }
+      } catch {
+        /* ya estaba apagado */
+      }
+    };
+
+    let arrancando = true;
     scanner
       .start(
         { facingMode: "environment" },
@@ -256,16 +280,21 @@ export function QRScanner() {
         },
         () => {}
       )
+      .then(() => {
+        // Si mientras arrancaba se cambió de fiesta o se salió de la pantalla, se apaga acá.
+        if (!mounted) apagar();
+      })
       .catch(() => {
         if (mounted) setError("No se pudo abrir la cámara. Revisá los permisos del navegador.");
+      })
+      .finally(() => {
+        arrancando = false;
       });
 
     return () => {
       mounted = false;
-      scanner
-        .stop()
-        .catch(() => {})
-        .finally(() => scanner.clear());
+      // Si todavía está arrancando, lo apaga el .then de arriba.
+      if (!arrancando) apagar();
     };
   }, [eventoId]);
 
