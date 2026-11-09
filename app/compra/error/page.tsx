@@ -22,11 +22,17 @@ function ErrorContent() {
         ✕
       </span>
       <h1 className="font-display text-2xl font-extrabold">Pago no realizado</h1>
-      <p className="text-sm text-white/65">
-        El pago fue rechazado o cancelado y no se cobró nada. Podés intentar de nuevo con otro medio.
+      <p className="text-sm text-white/70">
+        El pago fue rechazado o cancelado y no se cobró nada. Tus entradas siguen guardadas unos minutos: podés
+        probar de nuevo con otra tarjeta o medio.
       </p>
-      <Link href={slug ? `/fiesta/${slug}` : "/"} className="btn-oro mt-2 h-12 px-6 text-sm">
-        Reintentar compra
+      {ordenId && (
+        <Link href={`/comprar/pago?orden=${encodeURIComponent(ordenId)}`} className="btn-oro mt-2 h-12 px-6 text-sm">
+          Probar de nuevo
+        </Link>
+      )}
+      <Link href={slug ? `/fiesta/${slug}` : "/"} className="text-sm text-white/65 underline hover:text-white">
+        Elegir otras entradas
       </Link>
     </div>
   );

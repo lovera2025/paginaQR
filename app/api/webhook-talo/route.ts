@@ -21,14 +21,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // Si falla algo momentáneo (base, red) se responde 500 para que Talo reintente el aviso
+  // y la transferencia no quede acreditada sin entradas.
   try {
     const payment = await taloResult.client.payments.get(paymentId);
     const result = await processTaloPayment(payment);
     if ("error" in result) {
       console.error("[Talo webhook] error procesando:", result.error);
+      if (result.reintentar) return NextResponse.json({ error: "Reintentar" }, { status: 500 });
     }
   } catch (error) {
     console.error("[Talo webhook] error consultando pago:", error);
+    return NextResponse.json({ error: "Reintentar" }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

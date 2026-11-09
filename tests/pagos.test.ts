@@ -1,7 +1,7 @@
 import type { PaymentResponse } from "talo-pay";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { approveOrden, createOrdenPendiente, getActivity, getOrden, getTicketsByOrden } from "@/lib/db";
-import { processMpPayment } from "@/lib/mercadopago/payments";
+import { processMpPayment, processMpPaymentNotification } from "@/lib/mercadopago/payments";
 import { processTaloPayment } from "@/lib/talo/payments";
 import { savePaymentSettingsRow } from "@/lib/payments/settings";
 
@@ -59,11 +59,35 @@ describe("Mercado Pago (aviso del pago)", () => {
     expect(await getTicketsByOrden(orden.id)).toHaveLength(2);
   });
 
-  it("pago rechazado → compra rechazada, sin entradas", async () => {
+  it("tarjeta rechazada → la compra sigue esperando (puede probar con otra)", async () => {
     const orden = await ordenPendiente(1);
     await processMpPayment({ id: 114, status: "rejected", external_reference: orden.id });
-    expect((await getOrden(orden.id))?.estado).toBe("rechazado");
+    expect((await getOrden(orden.id))?.estado).toBe("pendiente");
     expect(await getTicketsByOrden(orden.id)).toHaveLength(0);
+  });
+
+  it("rechazada y después aprobada con otra tarjeta → entradas emitidas", async () => {
+    const orden = await ordenPendiente(2);
+    await processMpPayment({ id: 120, status: "rejected", external_reference: orden.id });
+    await processMpPayment({ id: 121, status: "approved", external_reference: orden.id, transaction_amount: orden.montoTotal });
+    expect((await getOrden(orden.id))?.estado).toBe("aprobado");
+    expect(await getTicketsByOrden(orden.id)).toHaveLength(2);
+  });
+
+  it("pago cancelado → compra rechazada; si después llega uno aprobado, se reabre y emite", async () => {
+    const orden = await ordenPendiente(1);
+    await processMpPayment({ id: 122, status: "cancelled", external_reference: orden.id });
+    expect((await getOrden(orden.id))?.estado).toBe("rechazado");
+    expect(
+      await processMpPayment({ id: 123, status: "approved", external_reference: orden.id, transaction_amount: orden.montoTotal })
+    ).toEqual({ ok: true });
+    expect((await getOrden(orden.id))?.estado).toBe("aprobado");
+    expect(await getTicketsByOrden(orden.id)).toHaveLength(1);
+  });
+
+  it("si no se puede consultar el pago, pide reintentar (el aviso responde error y MP lo vuelve a mandar)", async () => {
+    const r = await processMpPaymentNotification("999");
+    expect("error" in r && r.reintentar).toBe(true);
   });
 
   it("pago pendiente → la compra sigue esperando", async () => {
@@ -116,6 +140,14 @@ describe("Talo (transferencia)", () => {
     const orden = await ordenPendiente(1);
     await processTaloPayment(pagoTalo({ id: "talo-exp", external_id: orden.id, payment_status: "EXPIRED" }));
     expect((await getOrden(orden.id))?.estado).toBe("rechazado");
+  });
+
+  it("transferencia que llega después de vencida → se reabre y emite", async () => {
+    const orden = await ordenPendiente(1);
+    await processTaloPayment(pagoTalo({ id: "talo-tarde", external_id: orden.id, payment_status: "EXPIRED" }));
+    await processTaloPayment(pagoTalo({ id: "talo-tarde", external_id: orden.id, payment_status: "SUCCESS" }));
+    expect((await getOrden(orden.id))?.estado).toBe("aprobado");
+    expect(await getTicketsByOrden(orden.id)).toHaveLength(1);
   });
 
   it("transferencia con Talo en producción → modo producción", async () => {

@@ -31,6 +31,11 @@ export async function notifyOrdenAprobada(ordenId: string): Promise<void> {
   }
 
   if (!(await claimEmailSend(ordenId))) return;
-  const result = await sendOrderConfirmationEmail({ orden, tickets, evento, branding });
-  if (!result.sent) await releaseEmailSend(ordenId);
+  let enviado = false;
+  try {
+    enviado = (await sendOrderConfirmationEmail({ orden, tickets, evento, branding })).sent;
+  } finally {
+    // Si falló (incluso con una excepción), se libera para que el próximo aviso o sync lo reintente.
+    if (!enviado) await releaseEmailSend(ordenId);
+  }
 }

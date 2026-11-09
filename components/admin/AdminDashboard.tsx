@@ -422,6 +422,25 @@ export function AdminDashboard() {
     }
   }
 
+  async function handleRevisarPago(o: Orden) {
+    setActionLoading(o.id);
+    try {
+      const res = await fetch(`/api/admin/ordenes/${o.id}/revisar`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast("error", data.error ?? "No se pudo consultar");
+        return;
+      }
+      if (data.orden?.estado === "aprobado") showToast("success", "Estaba paga: entradas emitidas y mail enviado");
+      else if (data.orden?.problema === "pago_sin_cupo") showToast("error", "Pagó pero ya no quedaban entradas: hay que devolverle la plata");
+      else if (data.error) showToast("error", data.error);
+      else showToast("success", "Todavía no hay un pago aprobado para esta compra");
+      refresh();
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   async function persistEvento(updated: Evento, successMsg?: string) {
     const res = await fetch(`/api/admin/evento?evento=${encodeURIComponent(updated.id)}`, {
       method: "PUT",
@@ -1250,6 +1269,17 @@ export function AdminDashboard() {
                       </div>
                     </td>
                     <td className="p-3">
+                      {(o.estado === "pendiente" || o.estado === "rechazado") && !o.problema && (
+                        <button
+                          type="button"
+                          disabled={actionLoading === o.id}
+                          onClick={() => handleRevisarPago(o)}
+                          title="Consulta en Mercado Pago o Talo si esta compra se pagó"
+                          className="text-left text-xs text-blue-400 hover:underline disabled:opacity-50"
+                        >
+                          {actionLoading === o.id ? "Consultando…" : "Revisar pago"}
+                        </button>
+                      )}
                       {o.estado === "pendiente" && o.problema === "pago_sin_cupo" && (
                         <button
                           type="button"

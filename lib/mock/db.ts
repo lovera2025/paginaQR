@@ -251,6 +251,13 @@ export function createOrdenPendiente(input: {
   return { orden };
 }
 
+export function reabrirOrden(ordenId: string): { orden: Orden } | { error: string } {
+  const orden = getStore().ordenes.find((o) => o.id === ordenId);
+  if (!orden) return { error: "Orden no encontrada" };
+  if (orden.estado === "rechazado") orden.estado = "pendiente";
+  return { orden };
+}
+
 export function cerrarPagoSinCupo(ordenId: string): { orden: Orden } | { error: string } {
   const orden = getStore().ordenes.find((o) => o.id === ordenId);
   if (!orden) return { error: "Compra no encontrada" };
@@ -536,7 +543,7 @@ export function cerrarEvento(eventoId: string): { evento: Evento } | { error: st
   if (ev.estado !== "venta" && ev.estado !== "pausado")
     return { error: "Solo se puede cerrar una fiesta en venta o pausada" };
   for (const o of store.ordenes) {
-    if (o.eventoId === eventoId && o.estado === "pendiente") o.estado = "rechazado";
+    if (o.eventoId === eventoId && o.estado === "pendiente" && !o.problema) o.estado = "rechazado";
   }
   ev.estado = "finalizado";
   ev.activo = false;

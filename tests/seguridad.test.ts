@@ -92,3 +92,36 @@ describe("modo de pagos", () => {
     expect(avisoModoPrueba(local)).toBe("MODO SIMULACIÓN · no se cobra nada");
   });
 });
+
+describe("login del staff en producción", () => {
+  afterEach(() => {
+    process.env.APP_MODE = "mock";
+    delete process.env.ADMIN_PIN;
+    delete process.env.SCANNER_PIN;
+  });
+
+  async function login(pin: string) {
+    const { POST } = await import("@/app/api/auth/pin/route");
+    return POST(
+      new Request("http://localhost/api/auth/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": `10.0.0.${Math.floor(Math.random() * 250)}` },
+        body: JSON.stringify({ pin }),
+      })
+    );
+  }
+
+  it("sin PINs configurados no deja entrar con 1234", async () => {
+    process.env.APP_MODE = "production";
+    const res = await login("1234");
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toMatch(/ADMIN_PIN/);
+  });
+
+  it("con PIN de jefe seguro pero el de puerta débil, el de puerta no entra", async () => {
+    process.env.APP_MODE = "production";
+    process.env.ADMIN_PIN = "908172";
+    process.env.SCANNER_PIN = "1234";
+    expect((await login("1234")).status).toBe(401);
+  });
+});

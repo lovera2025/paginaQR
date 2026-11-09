@@ -2,6 +2,7 @@ import {
   approveOrden,
   getOrden,
   getOrdenByPaymentId,
+  reabrirOrden,
   registrarActividad,
   rejectOrden,
 } from "@/lib/db";
@@ -27,9 +28,13 @@ export async function searchMpPaymentsByOrden(
   return result.data.results ?? [];
 }
 
-export async function processMpPayment(
-  payment: MpPayment
-): Promise<{ ok: true } | { error: string }> {
+/**
+ * `reintentar` = falló algo momentáneo (base, red): el aviso tiene que responder error
+ * para que Mercado Pago lo vuelva a mandar. Los demás errores son definitivos.
+ */
+export type ResultadoPago = { ok: true } | { error: string; reintentar?: boolean };
+
+export async function processMpPayment(payment: MpPayment): Promise<ResultadoPago> {
   const ordenId = payment.external_reference?.trim();
   if (!ordenId) return { error: "Pago sin external_reference" };
 
@@ -51,6 +56,15 @@ export async function processMpPayment(
     return { ok: true };
   }
 
+  // Compra cerrada como rechazada (ej. vencida, o un intento anterior rechazado) pero ahora llega
+  // un pago aprobado: se reabre para emitir las entradas. Si ya no hay lugar, queda para devolver.
+  if (orden.estado === "rechazado" && payment.status === "approved") {
+    const reabierta = await reabrirOrden(ordenId);
+    if ("error" in reabierta) return { error: reabierta.error, reintentar: true };
+    await registrarActividad("pago", `${ref} → la compra estaba rechazada y llegó un pago aprobado: se reabre`);
+    return processMpPayment(payment);
+  }
+
   if (orden.estado !== "pendiente") {
     return { ok: true };
   }
@@ -69,27 +83,32 @@ export async function processMpPayment(
         return { ok: true };
       }
       await registrarActividad("pago", `${ref} → pago aprobado pero no se pudieron emitir las entradas: ${result.error}`);
-      return { error: result.error };
+      return { error: result.error, reintentar: true };
     }
     await registrarActividad("pago", `${ref} → aprobado${modo === "sandbox" ? " (PRUEBA)" : ""}`);
     return { ok: true };
   }
 
-  if (payment.status === "rejected" || payment.status === "cancelled") {
+  if (payment.status === "rejected") {
+    // Una tarjeta rechazada no cierra la compra: en el checkout de Mercado Pago la persona
+    // puede probar con otra tarjeta. La reserva sigue hasta que vence.
+    await registrarActividad("pago", `${ref} → intento rechazado (puede probar con otro medio)`);
+    return { ok: true };
+  }
+
+  if (payment.status === "cancelled") {
     const result = await rejectOrden(ordenId);
-    if ("error" in result) return { error: result.error };
-    await registrarActividad("pago", `${ref} → ${payment.status === "rejected" ? "rechazado" : "cancelado"}`);
+    if ("error" in result) return { error: result.error, reintentar: true };
+    await registrarActividad("pago", `${ref} → cancelado`);
     return { ok: true };
   }
 
   return { ok: true };
 }
 
-export async function processMpPaymentNotification(
-  paymentId: string
-): Promise<{ ok: true } | { error: string }> {
+export async function processMpPaymentNotification(paymentId: string): Promise<ResultadoPago> {
   const payment = await getMpPayment(paymentId);
-  if ("error" in payment) return { error: payment.error };
+  if ("error" in payment) return { error: payment.error, reintentar: true };
   return processMpPayment(payment);
 }
 

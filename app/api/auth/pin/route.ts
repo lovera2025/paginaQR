@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { setAuthCookie, type AuthRole } from "@/lib/auth/cookies";
-import { getAppPins } from "@/lib/auth/pins";
+import { getAppPins, isWeakPin } from "@/lib/auth/pins";
+import { getAppMode } from "@/lib/config";
 import { pinIgual } from "@/lib/auth/session";
 import { crearLimite, ipDe } from "@/lib/limite";
 
@@ -28,8 +29,22 @@ export async function POST(request: Request) {
   }
 
   const pins = await getAppPins();
-  const esAdmin = pinIgual(pin, pins.adminPin);
-  const esScanner = pinIgual(pin, pins.scannerPin);
+  // En producción un PIN débil (1234 o menos de 6 caracteres, ej. el de prueba que queda si no se
+  // configuró ninguno) nunca abre sesión: cualquiera lo adivinaría.
+  const prod = getAppMode() === "production";
+  const adminValido = !(prod && isWeakPin(pins.adminPin));
+  const scannerValido = !(prod && isWeakPin(pins.scannerPin));
+  if (!adminValido && !scannerValido) {
+    return NextResponse.json(
+      {
+        error:
+          "Falta configurar PINs seguros: cargá ADMIN_PIN y SCANNER_PIN (6 o más dígitos, distintos) en Vercel y volvé a desplegar.",
+      },
+      { status: 503 }
+    );
+  }
+  const esAdmin = adminValido && pinIgual(pin, pins.adminPin);
+  const esScanner = scannerValido && pinIgual(pin, pins.scannerPin);
   let role: AuthRole | null = null;
   if (body.role === "admin") role = esAdmin ? "admin" : null;
   else if (body.role === "scanner") role = esAdmin ? "admin" : esScanner ? "scanner" : null;

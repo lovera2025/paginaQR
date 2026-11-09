@@ -149,6 +149,10 @@ export async function marcarProblemaOrden(ordenId: string, problema: OrdenProble
   return sb() ? supabase.marcarProblemaOrden(ordenId, problema) : mock.marcarProblemaOrden(ordenId, problema);
 }
 
+export async function reabrirOrden(ordenId: string) {
+  return sb() ? supabase.reabrirOrden(ordenId) : mock.reabrirOrden(ordenId);
+}
+
 export async function cerrarPagoSinCupo(ordenId: string) {
   return sb() ? supabase.cerrarPagoSinCupo(ordenId) : mock.cerrarPagoSinCupo(ordenId);
 }

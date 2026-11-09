@@ -64,9 +64,17 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
     if (!ordenId) return;
     fetch(`/api/ordenes/${ordenId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setResumen(d))
+      .then((d) => {
+        if (!d) return;
+        // Si ya está paga (ej. volvió con "atrás"), directo a las entradas en vez de ofrecer pagar otra vez.
+        if (d.estado === "aprobado" || d.problema) {
+          router.replace(`/compra/exito?orden=${ordenId}`);
+          return;
+        }
+        setResumen(d);
+      })
       .catch(() => {});
-  }, [ordenId]);
+  }, [ordenId, router]);
 
   const startMercadoPago = useCallback(async () => {
     if (!ordenId) return;

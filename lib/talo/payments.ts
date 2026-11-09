@@ -3,6 +3,7 @@ import {
   approveOrden,
   getOrden,
   getOrdenByPaymentId,
+  reabrirOrden,
   registrarActividad,
   rejectOrden,
 } from "@/lib/db";
@@ -139,9 +140,10 @@ export async function createTaloPaymentForOrden(
   return extractTransferInstructions(payment, orden.montoTotal);
 }
 
+/** `reintentar` = falló algo momentáneo: el aviso responde error para que Talo lo reintente. */
 export async function processTaloPayment(
   payment: PaymentResponse
-): Promise<{ ok: true } | { error: string }> {
+): Promise<{ ok: true } | { error: string; reintentar?: boolean }> {
   const ordenId = payment.external_id?.trim();
   if (!ordenId) return { error: "Pago sin external_id" };
 
@@ -160,12 +162,22 @@ export async function processTaloPayment(
     return { ok: true };
   }
 
+  const ref = `Talo ${paymentId.slice(0, 12)} · compra ${ordenId.slice(0, 8)}`;
+  const acreditada = payment.payment_status === "SUCCESS" || payment.payment_status === "OVERPAID";
+
+  // La transferencia llegó después de que la compra se cerró (ej. vencida): se reabre para emitir
+  // las entradas; si ya no hay lugar, queda marcada para devolver la plata.
+  if (orden.estado === "rechazado" && acreditada) {
+    const reabierta = await reabrirOrden(ordenId);
+    if ("error" in reabierta) return { error: reabierta.error, reintentar: true };
+    await registrarActividad("pago", `${ref} → la compra estaba rechazada y llegó la transferencia: se reabre`);
+    return processTaloPayment(payment);
+  }
+
   if (orden.estado !== "pendiente") {
     return { ok: true };
   }
-
-  const ref = `Talo ${paymentId.slice(0, 12)} · compra ${ordenId.slice(0, 8)}`;
-  if (payment.payment_status === "SUCCESS" || payment.payment_status === "OVERPAID") {
+  if (acreditada) {
     const result = await approveOrden(ordenId, paymentId, "talo");
     if ("error" in result) {
       if (result.sinCupo) {
@@ -173,7 +185,7 @@ export async function processTaloPayment(
         return { ok: true };
       }
       await registrarActividad("pago", `${ref} → transferencia acreditada pero no se pudieron emitir las entradas: ${result.error}`);
-      return { error: result.error };
+      return { error: result.error, reintentar: true };
     }
     await registrarActividad("pago", `${ref} → aprobado${result.orden.modoPago === "sandbox" ? " (PRUEBA)" : ""}`);
     return { ok: true };
@@ -181,7 +193,7 @@ export async function processTaloPayment(
 
   if (payment.payment_status === "EXPIRED") {
     const result = await rejectOrden(ordenId);
-    if ("error" in result) return { error: result.error };
+    if ("error" in result) return { error: result.error, reintentar: true };
     await registrarActividad("pago", `${ref} → venció sin pagar`);
     return { ok: true };
   }

@@ -460,6 +460,21 @@ export async function cerrarPagoSinCupo(ordenId: string): Promise<{ orden: Orden
   return { orden: mapOrden(data) };
 }
 
+/** Una compra rechazada a la que igual le llegó un pago aprobado vuelve a pendiente para emitirse. */
+export async function reabrirOrden(ordenId: string): Promise<{ orden: Orden } | { error: string }> {
+  const { data, error } = await db()
+    .from("ordenes")
+    .update({ estado: "pendiente" })
+    .eq("id", ordenId)
+    .eq("estado", "rechazado")
+    .select()
+    .maybeSingle();
+  if (error) return { error: error.message };
+  const orden = data ? mapOrden(data) : await getOrden(ordenId);
+  if (!orden) return { error: "Orden no encontrada" };
+  return { orden };
+}
+
 export async function getOrden(ordenId: string): Promise<Orden | null> {
   const { data } = await db().from("ordenes").select("*").eq("id", ordenId).maybeSingle();
   return data ? mapOrden(data) : null;
@@ -730,7 +745,13 @@ export function reanudarVentas(eventoId: string) {
 }
 
 export async function cerrarEvento(eventoId: string): Promise<{ evento: Evento } | { error: string }> {
-  await db().from("ordenes").update({ estado: "rechazado" }).eq("evento_id", eventoId).eq("estado", "pendiente");
+  // Las que quedaron "pago sin cupo" siguen pendientes hasta registrar la devolución.
+  await db()
+    .from("ordenes")
+    .update({ estado: "rechazado" })
+    .eq("evento_id", eventoId)
+    .eq("estado", "pendiente")
+    .is("problema", null);
   return cambiarEstado(
     eventoId,
     ["venta", "pausado"],

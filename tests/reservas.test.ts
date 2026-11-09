@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   approveOrden,
+  cerrarEvento,
   cerrarPagoSinCupo,
   createOrdenPendiente,
   getActivity,
@@ -98,12 +99,28 @@ describe("reserva en la compra", () => {
     expect("orden" in (await comprar(1))).toBe(true);
   });
 
-  it("una compra rechazada libera su lugar enseguida", async () => {
+  it("una compra cancelada libera su lugar enseguida; una tarjeta rechazada no (puede reintentar)", async () => {
     await updateTipo(ANTICIPADA, { cupo: 1 });
     const o = await comprarOk(1);
     expect("error" in (await comprar(1))).toBe(true);
-    await processMpPayment({ id: 300, status: "rejected", external_reference: o.id });
+    await processMpPayment({ id: 299, status: "rejected", external_reference: o.id });
+    expect("error" in (await comprar(1))).toBe(true);
+    await processMpPayment({ id: 300, status: "cancelled", external_reference: o.id });
     expect("orden" in (await comprar(1))).toBe(true);
+  });
+
+  it("al cerrar la fiesta, los pagos sin cupo siguen pendientes de devolver", async () => {
+    await updateTipo(ANTICIPADA, { cupo: 1 });
+    const tarde = await comprarOk(1, "Llegó Tarde");
+    minutos(RESERVA_MINUTOS + 1);
+    const otra = await comprarOk(1);
+    await approveOrden(otra.id);
+    await processMpPayment({ id: 303, status: "approved", external_reference: tarde.id, transaction_amount: tarde.montoTotal });
+    const sinPagar = await comprar(1);
+    expect("error" in sinPagar).toBe(true); // agotada
+    await cerrarEvento(FIESTA);
+    expect((await getOrden(tarde.id))?.estado).toBe("pendiente");
+    expect((await getOrden(tarde.id))?.problema).toBe("pago_sin_cupo");
   });
 });
 
