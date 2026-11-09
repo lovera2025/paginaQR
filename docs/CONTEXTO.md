@@ -1,11 +1,35 @@
 # PaginaQR / Junior Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: **7 noviembre 2026** — Rediseño completo a **tienda multi-fiesta** (9 recepciones Promo 2026) con tipos de entrada **Anticipada / General / VIP**, entrada en **PDF**, acceso **/staff** con un PIN y app instalable. Código en la rama `rediseno-recepciones` (sin push, sin deploy). Próximo: correr la migración en Supabase y probar pagos reales en sandbox.
+> Última actualización: **9 noviembre 2026** — Login/Staff, modo prueba, Próximamente, anulaciones a mano, marca Junior Eventos, tests automáticos, arreglos de seguridad y **Supabase nuevo `junior-eventos` creado y cargado**. Rama `rediseno-recepciones` (sin push, sin deploy). **Objetivo antes de lanzar:** que cualquiera compre → pago aprobado → entradas y PDF disponibles, sin errores. Recién con eso verificado se lanza.
 
-## Estado actual (7 nov 2026)
+## Estado actual (9 nov 2026)
 
-### Hecho en esta sesión
+### Hecho
+- **Login/Staff**: el acceso al staff se llama así en el header de la portada, en el pie y en la pantalla del PIN.
+- **Modo prueba**: si los pagos son simulados o de prueba, la web muestra una barra "MODO SIMULACIÓN / MODO PRUEBA" (portada, fiesta, pago y éxito). Cada compra guarda `modo_pago` (`simulado` / `sandbox` / `produccion`): chip SIMULADA/PRUEBA en Compras y Emitidas, "ENTRADA DE PRUEBA" en el scanner y asunto `[PRUEBA]` en el mail. Admin → Pagos: estado de cada medio (Producción / Prueba / Apagado), guía para probar Mercado Pago con cuentas y tarjetas de prueba, checklist antes de lanzar, y "Probar" avisa si el token es de prueba o de producción y si no coincide con el ambiente. Publicar con pagos de prueba pide confirmación. Los avisos de Mercado Pago/Talo quedan en Actividad.
+- **Próximamente** (por tipo y por fiesta): en Admin → Entradas y precios, "Estado de venta" = A la venta / Próximamente con fecha (cuenta regresiva, abre sola) / Próximamente fecha a confirmar, y "Mostrar el precio antes de abrir". En Admin → Fiesta, bloque "Venta de la fiesta" igual. En la web: tarjetas PRÓXIMAMENTE sin precio ni cantidad (el precio tampoco viaja en la API), "Avisame cuando abra" por WhatsApp, badge "ANTICIPADAS A LA VENTA". Datos de ejemplo: Anticipada a la venta, General abre sola cuando cierra la anticipada, VIP a confirmar.
+- **Anulaciones a mano** (el comprador escribe por WhatsApp; plazo de ~4 horas, texto editable en Admin → Marca → "Política de anulación"): Admin → Compras → "Anular…" → elegir entradas, motivo y "Ya le devolví la plata". La entrada da rojo "Entrada anulada" en la puerta, desaparece del PDF, el cupo vuelve y queda en Actividad. Una entrada que ya ingresó no se puede anular. Sin API de reembolso de Mercado Pago (la plata la devuelve el jefe). Recaudado se muestra neto de lo devuelto.
+- **Marca Junior Eventos**: isotipo y nombre oficiales (desde `Desktop\plan\icons`, preparados con `node scripts/preparar-marca.mjs <carpeta>` en `public/marca/`), títulos en **Righteous** (parecida a las letras del logo), dorado se mantiene, magenta solo en el logo. Íconos de la app y favicon con el isotipo (`node scripts/make-icons.mjs --from public/marca/isotipo-claro.png`). Logo en la cabecera del PDF y del mail.
+- **Tests automáticos**: `npm test` (vitest, 45 pruebas, base en memoria): entradas solo con pago aprobado, cupos, precio congelado, Próximamente, avisos de MP/Talo (aprobado, rechazado, duplicado, monto menor), puerta, anulaciones, sesión firmada.
+- **Seguridad (arreglado)**:
+  - La sesión del staff era una cookie sin firmar (`admin:1`): cualquiera podía falsificarla y entrar al panel. Ahora está firmada (HMAC) y vence a las 12 h. Clave: `AUTH_SECRET` o, si no está, la `SUPABASE_SERVICE_ROLE_KEY`.
+  - Límite de 8 intentos fallidos de PIN cada 10 minutos por IP.
+  - `app_pins` y `app_payments` no tenían RLS: la clave pública (que va en el navegador) podía leer los PINs y el token de Mercado Pago. Ahora tienen RLS. **Si el proyecto Supabase viejo `paginaqr-eventos` (junio) sigue existiendo en otra cuenta, conviene renovar el token de MP de producción y los PINs que estaban ahí.**
+  - Sin `APP_MODE` en el deploy de producción de Vercel la app caía en "simulación" (entradas gratis). Ahora en producción nunca se simula; si no hay medios de pago, no deja comprar.
+  - El pago de MP se aprueba solo si el monto pagado cubre la compra.
+  - El precio viejo de la fiesta (`eventos.precio`) ya no se publica.
+- **Supabase nuevo**: proyecto `junior-eventos` (ref `jllfdxxleszeimsxruva`, São Paulo, plan gratis) en la org `lovera2025's Org`. Ya tiene `schema.sql`, `storage.sql`, la migración `2026_11_modo_prueba_proximamente_anulaciones.sql` y el seed de las 9 fiestas (en borrador). URL y clave pública ya están en `.env.local`.
+
+### Probado (9 nov, local)
+- Portada, fiesta, pago simulado, éxito, PDF (3 páginas con logo), admin (Compras, Anular, Entradas y precios, Pagos), /staff en 375 px sin scroll horizontal.
+- Por API: General próximamente → checkout 400; email inválido → 400; antes de aprobar entradas/PDF → 409; puerta válida → ya usada → otra fiesta; anular entrada usada → error; anular con devolución → rojo en la puerta, PDF individual 410, cupo +1, recaudado neto; cookie falsificada → 401.
+- `npm test` (45/45), `npm run lint` y `npm run build` sin errores.
+- **No probado todavía**: Supabase real desde la app (falta la service role), Mercado Pago de prueba, mail real, cámara del scanner, deploy.
+
+## Sesión anterior (7 nov 2026)
+
+### Hecho
 - **Varias fiestas a la vez.** Ya no existe "el evento activo": la portada muestra todas las fiestas en `venta` o `pausado`. Cada una tiene su página `/fiesta/<slug>` con flyer, cuenta regresiva, selector de entradas y compra.
 - **Tipos de entrada por fiesta** (tabla `tipos_entrada`): nombre, precio, cupo, venta desde/hasta, diseño (`anticipada`, `general`, `vip`, `custom`), beneficios, activo, orden. Se editan en **Admin → Entradas y precios**, con vista previa en vivo.
   - El precio se **congela en la compra** (`ordenes.precio_unitario`); cambiarlo después no toca lo vendido.
@@ -30,15 +54,17 @@
 - `npm run build` y `npm run lint` sin errores.
 - **No probado**: cámara del scanner (el navegador integrado no tiene cámara), Mercado Pago/Talo reales, Supabase real, envío real de mails.
 
-## Pendiente para retomar
+## Pendiente para retomar (en este orden)
 
-1. **Supabase (obligatorio antes de desplegar):** en SQL Editor correr `supabase/migrations/multi_evento.sql` y después `supabase/seeds/recepciones_2026.sql` (carga las 9 fiestas en borrador). Si se despliega sin la migración, la web en producción se rompe.
-2. **Datos reales del jefe:** precios de cada tipo, hora de inicio, aforo por predio, fecha de cierre de anticipadas, WhatsApp de contacto, logo (opcional). Todo se carga desde el admin.
-3. **Pruebas en sandbox** con Supabase + credenciales de prueba de Mercado Pago (Admin → Pagos, ambiente "Prueba"): comprar 5 VIP con tarjeta de prueba, confirmar que antes del webhook no hay entradas, que después hay 5 QR + PDF de 5 páginas + mail, escanear cada una (válida una vez, amarilla la segunda) y una tarjeta rechazada (aviso rojo, sin entradas). Repetir una compra por Talo.
-4. **Mail real:** Resend con `onboarding@resend.dev` solo entrega al dueño de la cuenta. Para mandar a compradores hay que verificar un dominio en Resend y poner `RESEND_FROM` con ese dominio.
-5. **Deploy:** mergear `rediseno-recepciones` a `main` recién después del paso 1 (Vercel despliega solo al pushear `main`).
-6. **Próximo plan — Reembolsos:** rediseñar reembolsos para multi-fiesta y tipos (hoy el botón sigue deshabilitado). Ideas: reembolso parcial por entrada, motivo obligatorio, aviso por mail al comprador, que devuelva el cupo al tipo, y registro en Historial. Ver retención de fondos de Mercado Pago antes de habilitar.
-7. **Próximo plan — Otros:** ingreso manual en el scanner si falla la cámara (buscar por nombre), exportar ventas a Excel, compra mixta (VIP + General en una sola compra).
+1. **Service role de Supabase (vos):** Supabase → proyecto `junior-eventos` → Project Settings → API Keys → `service_role` (secret) → pegarla en `.env.local` en `SUPABASE_SERVICE_ROLE_KEY=`. Después `npm run verify:supabase` tiene que dar todo ✅ y `npm run dev` ya usa la base real.
+2. **Primera vuelta con la base real (pago simulado):** comprar, ver entradas y PDF, escanear, anular, ver Historial. Cambiar los PINs en Admin → Seguridad (la base nueva usa los de `.env.local` hasta que los cambies).
+3. **Mercado Pago de prueba (vos + yo):** en developers.mercadopago.com → tu app → Cuentas de prueba: crear Vendedor y Comprador (Argentina). Pegar el Access Token del Vendedor en Admin → Pagos con ambiente "Prueba" → "Probar" debe decir token de PRUEBA. Comprar logueado como Comprador de prueba con la tarjeta `APRO`, y otra con `OTHE` (rechazada). La guía completa está en Admin → Pagos.
+4. **Vercel:** autorizar el equipo `maximiliano-loveras-projects` para el conector (o cargar a mano en el dashboard): `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` del proyecto nuevo, `AUTH_SECRET` (texto largo al azar), `APP_MODE=production`, `RESEND_*`, `NEXT_PUBLIC_APP_URL`. **Borrar `MP_ACCESS_TOKEN` de Vercel** (token productivo de junio): si no, las pruebas cobrarían de verdad. Ver `docs/VERCEL-DEPLOY.md`.
+5. **Deploy y webhook real:** push de `rediseno-recepciones`, PR y merge a `main` **solo con el OK del usuario**. En la URL pública repetir la compra de prueba y ver en Actividad "MP … → aprobado".
+6. **Datos reales del jefe:** precios, hora, aforo, cierre de anticipadas, WhatsApp de contacto (lo usa "Anular" y "Avisame cuando abra").
+7. **Mail real:** verificar un dominio en Resend y poner `RESEND_FROM` con ese dominio (con `onboarding@resend.dev` solo le llega al dueño de la cuenta).
+8. **Salir a producción (cuando el jefe diga):** token real de MP con ambiente Producción → Reiniciar ventas en cada fiesta → PINs fuertes → Publicar. El aviso MODO PRUEBA desaparece solo.
+9. **Después:** ingreso manual en el scanner si falla la cámara, exportar ventas a Excel, compra mixta de tipos.
 
 ### Archivos clave del rediseño
 | Tema | Archivos |
@@ -50,7 +76,13 @@
 | Pago y éxito | `app/comprar/pago/page.tsx`, `app/compra/exito/page.tsx`, `components/comprar/TicketQrPanel.tsx` |
 | Staff | `app/staff/page.tsx`, `components/auth/PinGate.tsx`, `components/scanner/QRScanner.tsx` |
 | Admin | `components/admin/AdminDashboard.tsx`, `TiposEntradaPanel.tsx`, `BrandingForm.tsx`, `VentasGenerales.tsx` |
-| SQL | `supabase/migrations/multi_evento.sql`, `supabase/seeds/recepciones_2026.sql` |
+| SQL | `supabase/schema.sql`, `supabase/migrations/2026_11_modo_prueba_proximamente_anulaciones.sql`, `supabase/seeds/recepciones_2026.sql` |
+| Modo prueba | `lib/payments/modo.ts`, `lib/payments/methods.ts`, `components/publico/AvisoModoPrueba.tsx`, `components/admin/ChecklistPruebas.tsx` |
+| Próximamente | `lib/entradas/tipos.ts` (`fiestaEnProximamente`, `tipoEnProximamente`, `tipoParaPublico`), `components/publico/CompraEntradas.tsx` |
+| Anulaciones | `lib/entradas/anulaciones.ts`, `components/admin/AnularModal.tsx`, `app/api/admin/ordenes/[id]/anular/route.ts` |
+| Sesión staff | `lib/auth/session.ts`, `lib/auth/cookies.ts`, `app/api/auth/pin/route.ts` |
+| Marca | `public/marca/`, `components/publico/Marca.tsx`, `scripts/preparar-marca.mjs`, `scripts/make-icons.mjs` |
+| Tests | `tests/*.test.ts`, `vitest.config.mts` |
 
 ---
 
