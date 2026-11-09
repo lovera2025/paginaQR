@@ -2,6 +2,8 @@
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
 > Última actualización: **9 noviembre 2026** — Login/Staff, modo prueba, Próximamente, anulaciones a mano, marca Junior Eventos, tests automáticos, arreglos de seguridad y **Supabase nuevo `junior-eventos` creado y cargado**. Rama `rediseno-recepciones` (sin push, sin deploy). **Objetivo antes de lanzar:** que cualquiera compre → pago aprobado → entradas y PDF disponibles, sin errores. Recién con eso verificado se lanza.
+> **Calendario:** 9 nov = día de pruebas. **10 nov = lanzamiento si todo sale bien** (solo con OK del usuario).
+> **Para retomar en un chat nuevo:** "leé `docs/CONTEXTO.md` y seguimos con lo pendiente" → ir a **Pendiente para retomar**.
 
 ## Estado actual (9 nov 2026)
 
@@ -15,12 +17,28 @@
 - **Seguridad (arreglado)**:
   - La sesión del staff era una cookie sin firmar (`admin:1`): cualquiera podía falsificarla y entrar al panel. Ahora está firmada (HMAC) y vence a las 12 h. Clave: `AUTH_SECRET` o, si no está, la `SUPABASE_SERVICE_ROLE_KEY`.
   - Límite de 8 intentos fallidos de PIN cada 10 minutos por IP.
-  - `app_pins` y `app_payments` no tenían RLS: la clave pública (que va en el navegador) podía leer los PINs y el token de Mercado Pago. Ahora tienen RLS. **Si el proyecto Supabase viejo `paginaqr-eventos` (junio) sigue existiendo en otra cuenta, conviene renovar el token de MP de producción y los PINs que estaban ahí.**
+  - `app_pins` y `app_payments` no tenían RLS: la clave pública (que va en el navegador) podía leer los PINs y el token de Mercado Pago. Ahora tienen RLS. **El proyecto de junio `paginaqr-eventos` sí existe (pausado) y mientras estuvo activo tenía ese problema: para lanzar, cargar un token de Mercado Pago de producción NUEVO (regenerado en el panel de MP), no el de junio.**
   - Sin `APP_MODE` en el deploy de producción de Vercel la app caía en "simulación" (entradas gratis). Ahora en producción nunca se simula; si no hay medios de pago, no deja comprar.
   - El pago de MP se aprueba solo si el monto pagado cubre la compra.
   - El precio viejo de la fiesta (`eventos.precio`) ya no se publica.
 - **Supabase nuevo**: proyecto `junior-eventos` (ref `jllfdxxleszeimsxruva`, São Paulo, plan gratis) en la org `lovera2025's Org`. Ya tiene `schema.sql`, `storage.sql`, la migración `2026_11_modo_prueba_proximamente_anulaciones.sql` y el seed de las 9 fiestas (en borrador). URL y clave pública ya están en `.env.local`.
   - **Decisión (9 nov): se lanza con `junior-eventos`.** El de junio `paginaqr-eventos` (otra cuenta/org, ref `vzstuqpbqaunuhcuitix`) queda **pausado** con los PINs y ventas de junio. Supabase permite 2 proyectos gratis activos por dueño: `lovera2025` tiene ArguelloApp + junior-eventos. **ArguelloApp no se pausa nunca.**
+
+### Acceso y cuentas (para probar)
+- **No hay registro ni usuarios.** Los compradores compran sin cuenta (nombre + mail). El staff entra solo con PIN en **Login/Staff**: un PIN de jefe (panel + scanner) y uno de puerta (solo scanner).
+- **PIN local de prueba:** el que está en `.env.local` (`ADMIN_PIN` / `SCANNER_PIN`). Hoy los dos son el de prueba `1234`, así que entra como jefe. Con la base real, mientras `app_pins` esté vacía, se usan esos mismos.
+- Para probar la puerta aparte: Admin → Seguridad → Cambiar PINs (6+ dígitos, distintos). **Antes de lanzar hay que cambiarlos sí o sí.**
+- Los PINs de junio quedaron en el proyecto pausado `paginaqr-eventos`; no se traen (decisión 9 nov).
+
+### Cómo probar hoy
+- **Sin la service role**, la app usa la base en memoria: lo que compres se borra al reiniciar el servidor. Con la clave pegada queda guardado en Supabase.
+- **En la compu:** `npm run dev` → http://localhost:3000. **En el celular (misma WiFi):** http://IP-de-la-PC:3000 sirve para comprar, pero la **cámara del scanner necesita https**: probarla en la versión de Vercel o con la webcam de la compu en localhost.
+- **Pagos:** sin Mercado Pago configurado, el pago se aprueba/rechaza con los botones de simulación (barra "MODO SIMULACIÓN"). Para tarjetas de prueba de MP hace falta el Access Token del vendedor de prueba (paso 4).
+
+### Conector de Supabase de Claude (importante)
+- El 9 nov el conector se cambió a la cuenta/org vieja **`paginaqr-eventos`** para buscar lo de junio. **Hoy Claude solo ve el proyecto pausado de junio, no `junior-eventos`.**
+- Para que Claude pueda volver a trabajar sobre `junior-eventos`: Claude → Configuración → Conectores → Supabase → Desconectar → Conectar → elegir la organización **`lovera2025's Org`**. (La app en sí no depende del conector: usa las claves de `.env.local` / Vercel.)
+- No se pudo reactivar `paginaqr-eventos`: límite de 2 proyectos gratis activos por dueño (ArguelloApp + junior-eventos). **ArguelloApp no se pausa nunca.**
 
 ### Probado (9 nov, local)
 - Portada, fiesta, pago simulado, éxito, PDF (3 páginas con logo), admin (Compras, Anular, Entradas y precios, Pagos), /staff en 375 px sin scroll horizontal.
@@ -57,15 +75,21 @@
 
 ## Pendiente para retomar (en este orden)
 
-1. **Service role de Supabase (vos):** Supabase → proyecto `junior-eventos` → Project Settings → API Keys → `service_role` (secret) → pegarla en `.env.local` en `SUPABASE_SERVICE_ROLE_KEY=`. Después `npm run verify:supabase` tiene que dar todo ✅ y `npm run dev` ya usa la base real.
-2. **Primera vuelta con la base real (pago simulado):** comprar, ver entradas y PDF, escanear, anular, ver Historial. Cambiar los PINs en Admin → Seguridad (la base nueva usa los de `.env.local` hasta que los cambies).
-3. **Mercado Pago de prueba (vos + yo):** en developers.mercadopago.com → tu app → Cuentas de prueba: crear Vendedor y Comprador (Argentina). Pegar el Access Token del Vendedor en Admin → Pagos con ambiente "Prueba" → "Probar" debe decir token de PRUEBA. Comprar logueado como Comprador de prueba con la tarjeta `APRO`, y otra con `OTHE` (rechazada). La guía completa está en Admin → Pagos.
-4. **Vercel:** autorizar el equipo `maximiliano-loveras-projects` para el conector (o cargar a mano en el dashboard): `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` del proyecto nuevo, `AUTH_SECRET` (texto largo al azar), `APP_MODE=production`, `RESEND_*`, `NEXT_PUBLIC_APP_URL`. **Borrar `MP_ACCESS_TOKEN` de Vercel** (token productivo de junio): si no, las pruebas cobrarían de verdad. Ver `docs/VERCEL-DEPLOY.md`.
-5. **Deploy y webhook real:** push de `rediseno-recepciones`, PR y merge a `main` **solo con el OK del usuario**. En la URL pública repetir la compra de prueba y ver en Actividad "MP … → aprobado".
-6. **Datos reales del jefe:** precios, hora, aforo, cierre de anticipadas, WhatsApp de contacto (lo usa "Anular" y "Avisame cuando abra").
-7. **Mail real:** verificar un dominio en Resend y poner `RESEND_FROM` con ese dominio (con `onboarding@resend.dev` solo le llega al dueño de la cuenta).
-8. **Salir a producción (cuando el jefe diga):** token real de MP con ambiente Producción → Reiniciar ventas en cada fiesta → PINs fuertes → Publicar. El aviso MODO PRUEBA desaparece solo.
-9. **Después:** ingreso manual en el scanner si falla la cámara, exportar ventas a Excel, compra mixta de tipos.
+**Hoy 9 nov — pruebas**
+1. **Service role de Supabase (vos):** supabase.com con la cuenta `lovera2025` → proyecto `junior-eventos` → Project Settings → API Keys → `service_role` (secret) → pegarla en `.env.local` en `SUPABASE_SERVICE_ROLE_KEY=` (la línea ya está, vacía). Después `npm run verify:supabase` tiene que dar todo ✅ y `npm run dev` ya usa la base real.
+2. **(Opcional, para que Claude toque la base)** reconectar el conector de Supabase a `lovera2025's Org` (ver arriba).
+3. **Primera vuelta con la base real y pago simulado:** comprar (Anticipada está a la venta; General y VIP en próximamente), ver entradas y PDF, escanear, anular una, ver Actividad. Cambiar los PINs en Admin → Seguridad.
+4. **Mercado Pago de prueba (vos + Claude):** developers.mercadopago.com → tu app → Cuentas de prueba: crear Vendedor y Comprador (Argentina). Pegar el Access Token del Vendedor en Admin → Pagos con ambiente "Prueba" → "Probar" debe decir token de PRUEBA. Comprar en incógnito logueado como Comprador de prueba: tarjeta con titular `APRO` (aprobada) y otra con `OTHE` (rechazada). Guía y tarjetas en Admin → Pagos. Usar el checklist de Admin → Pagos.
+5. **Vercel:** autorizar el equipo `maximiliano-loveras-projects` para el conector de Claude (o cargar a mano en el dashboard): `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` de `junior-eventos`, `AUTH_SECRET` (texto largo al azar), `APP_MODE=production`, `RESEND_*`, `NEXT_PUBLIC_APP_URL`. **Borrar `MP_ACCESS_TOKEN` de Vercel** (token productivo de junio): si queda, se usa cuando la tabla de pagos está vacía y las pruebas cobrarían de verdad. Hoy la web de junio (https://jreventos-entradas.vercel.app) apunta al proyecto pausado y muestra "No hay evento activo". Ver `docs/VERCEL-DEPLOY.md`.
+
+**Mañana 10 nov — lanzamiento (solo si todo lo de arriba anduvo y el usuario da el OK)**
+6. **Deploy y webhook real:** push de `rediseno-recepciones`, PR y merge a `main` (Vercel despliega solo). En MP → Webhooks: `https://<dominio>/api/webhook-mp`, evento Pagos. En la URL pública repetir una compra de prueba (MP sandbox) y ver en Actividad "MP … → aprobado" y la cámara del scanner en el celular.
+7. **Datos reales del jefe:** precios, hora, aforo, cierre de anticipadas, WhatsApp de contacto (lo usan "Anular" y "Avisame cuando abra"), texto de la política de anulación.
+8. **Salir a producción:** token de MP de producción **nuevo** con ambiente Producción → "Probar" dice PRODUCCIÓN → Reiniciar ventas en cada fiesta (borra las compras de prueba; solo en borrador) → PINs fuertes → Publicar cada fiesta. El aviso MODO PRUEBA desaparece solo.
+9. **Mail real:** verificar un dominio en Resend y poner `RESEND_FROM` con ese dominio (con `onboarding@resend.dev` solo le llega al dueño de la cuenta de Resend).
+
+**Después**
+10. Ingreso manual en el scanner si falla la cámara (buscar por nombre), exportar ventas a Excel, compra mixta de tipos.
 
 ### Archivos clave del rediseño
 | Tema | Archivos |
