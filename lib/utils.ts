@@ -2,6 +2,14 @@ export function formatPrecio(amount: number): string {
   return `$${amount.toLocaleString("es-AR")}`;
 }
 
+/** Cómo se puede pagar, según los medios que están activos ("mp" / "talo"). */
+export function textoMedios(medios: string[]): string {
+  if (medios.includes("mp") && medios.includes("talo")) return "Mercado Pago · transferencia · sin registro";
+  if (medios.includes("mp")) return "Mercado Pago · sin registro";
+  if (medios.includes("talo")) return "Transferencia · sin registro";
+  return "Pago online · sin registro";
+}
+
 const TZ_AR = "America/Argentina/Buenos_Aires";
 
 export function formatFecha(iso: string): string {

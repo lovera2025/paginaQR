@@ -3,24 +3,33 @@
 import Image from "next/image";
 import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
-import type { Branding, Evento } from "@/types";
-import { diaCorto } from "@/lib/utils";
+import type { Branding, Evento, PaymentMethod } from "@/types";
+import { diaCorto, textoMedios } from "@/lib/utils";
 import { Countdown } from "./Countdown";
 import { IconCandado, IconFlecha } from "./iconos";
 import { Marca } from "./Marca";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
+/** Abanico chico de flyers para el celular (centro, izquierda, derecha). */
+const FAN_MOVIL = [
+  { x: 0, top: 0, w: 124, rot: 0, z: 3 },
+  { x: -86, top: 24, w: 104, rot: -9, z: 1 },
+  { x: 86, top: 24, w: 104, rot: 9, z: 2 },
+];
+
 export function HomeHero({
   branding,
   proxima,
   flyers,
   totalFiestas,
+  medios,
 }: {
   branding: Branding;
   proxima: Evento | null;
   flyers: { src: string; alt: string }[];
   totalFiestas: number;
+  medios: PaymentMethod[];
 }) {
   const reduce = useReducedMotion();
   const fan = flyers.slice(0, 3);
@@ -55,9 +64,41 @@ export function HomeHero({
         </nav>
       </header>
 
-      <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 pb-10 pt-10 sm:px-8 sm:pt-16 lg:grid-cols-[1.1fr_1fr] lg:pb-16">
+      <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 pb-10 pt-7 sm:px-8 sm:pt-16 lg:grid-cols-[1.1fr_1fr] lg:pb-16">
         <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
-          <p style={{ animationDelay: "0s" }} className="animate-fade-up eyebrow">
+          {fan.length > 0 && (
+            <div aria-hidden className="relative mb-7 h-[222px] w-full max-w-[320px] sm:hidden">
+              {fan.map((f, i) => {
+                const pos = FAN_MOVIL[fan.length === 1 ? 0 : i];
+                return (
+                  <div
+                    key={f.src}
+                    className="animate-fade-up absolute"
+                    style={{
+                      left: `calc(50% + ${pos.x}px)`,
+                      top: pos.top,
+                      width: pos.w,
+                      marginLeft: -pos.w / 2,
+                      zIndex: pos.z,
+                      animationDelay: `${0.05 + i * 0.1}s`,
+                    }}
+                  >
+                    <div
+                      className={`relative aspect-[9/16] overflow-hidden rounded-[16px] border ${
+                        i === 0
+                          ? "border-oro/55 shadow-[0_24px_60px_rgba(212,168,83,0.3)]"
+                          : "border-white/10 shadow-[0_18px_40px_rgba(0,0,0,0.7)] brightness-[0.8]"
+                      }`}
+                      style={{ transform: `rotate(${pos.rot}deg)` }}
+                    >
+                      <Image src={f.src} alt="" fill sizes="130px" className="object-cover" priority={i === 0} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p style={{ animationDelay: "0s" }} className="animate-fade-up eyebrow text-balance">
             {branding.tagline || "Egresados · Promo 2026"}
           </p>
           <h1
@@ -80,7 +121,7 @@ export function HomeHero({
               Ver las fiestas
               <IconFlecha />
             </a>
-            <span className="text-[13px] text-white/50">Mercado Pago · transferencia · sin registro</span>
+            <span className="text-[13px] text-white/60">{textoMedios(medios)}</span>
           </div>
 
           {proxima && (

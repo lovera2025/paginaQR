@@ -25,6 +25,7 @@ import {
   validarCompraTipo,
   validarDatosComprador,
   type Reserva,
+  type TicketConteo,
 } from "@/lib/entradas/tipos";
 import { SEED_BRANDING } from "@/lib/mock/seed";
 import type { OrdenRow, TicketRow } from "./types";
@@ -96,12 +97,21 @@ async function getTiposDeEventos(eventoIds: string[]): Promise<TipoEntrada[]> {
   return (data ?? []).map(mapTipo);
 }
 
-async function getTicketsDeEventos(eventoIds: string[]): Promise<Ticket[]> {
+/**
+ * Lo mínimo de cada entrada para contar vendidas y cupos (se pide en cada visita a la portada:
+ * traer solo estas columnas hace la consulta mucho más liviana que la fila entera).
+ */
+async function getTicketsDeEventos(eventoIds: string[]): Promise<TicketConteo[]> {
   if (eventoIds.length === 0) return [];
-  const rows = await traerTodo<TicketRow>((desde, hasta) =>
-    db().from("tickets").select("*").in("evento_id", eventoIds).order("id").range(desde, hasta)
+  const rows = await traerTodo<Pick<TicketRow, "evento_id" | "tipo_entrada_id" | "cancelado">>((desde, hasta) =>
+    db()
+      .from("tickets")
+      .select("id,evento_id,tipo_entrada_id,cancelado")
+      .in("evento_id", eventoIds)
+      .order("id")
+      .range(desde, hasta)
   );
-  return rows.map(mapTicket);
+  return rows.map((r) => ({ eventoId: r.evento_id, tipoEntradaId: r.tipo_entrada_id ?? null, cancelado: r.cancelado }));
 }
 
 /** Compras sin pagar de los últimos minutos: guardan lugar mientras dura la reserva. */

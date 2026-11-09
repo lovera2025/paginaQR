@@ -9,11 +9,12 @@ import { Reveal } from "@/components/publico/Reveal";
 import { AvisoModoPrueba } from "@/components/publico/AvisoModoPrueba";
 import { IconMas } from "@/components/publico/iconos";
 import { whatsappHref } from "@/lib/utils";
+import { getModoPagos } from "@/lib/payments/modo";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [catalogo, branding] = await Promise.all([getCatalogo(), getBranding()]);
+  const [catalogo, branding, modo] = await Promise.all([getCatalogo(), getBranding(), getModoPagos()]);
   const eventos = catalogo.map((c) => c.evento);
   const ahora = Date.now();
   const proxima =
@@ -27,7 +28,7 @@ export default async function HomePage() {
   return (
     <main className="relative min-h-screen overflow-x-clip bg-noche">
       <AvisoModoPrueba />
-      <HomeHero branding={branding} proxima={proxima} flyers={flyers} totalFiestas={catalogo.length} />
+      <HomeHero branding={branding} proxima={proxima} flyers={flyers} totalFiestas={catalogo.length} medios={modo.methods} />
       <Marquee eventos={eventos} />
 
       <section id="fiestas" className="mx-auto max-w-6xl scroll-mt-6 px-4 pt-12 sm:px-8 sm:pt-16">

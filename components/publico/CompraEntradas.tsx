@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import type { Evento, TipoEntradaDisponible } from "@/types";
+import type { Evento, PaymentMethod, TipoEntradaDisponible } from "@/types";
 import { ddmm, formatPrecio, whatsappHref } from "@/lib/utils";
 import { CuentaTexto } from "./Countdown";
 import { IconCorona, IconWhatsapp } from "./iconos";
@@ -26,14 +26,14 @@ function TipoProximo({ tipo, ocultarFecha }: { tipo: TipoEntradaDisponible; ocul
         {tipo.beneficios.length > 0 && (
           <span className="flex flex-wrap gap-1">
             {tipo.beneficios.map((b) => (
-              <span key={b} className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10.5px] text-white/60">
+              <span key={b} className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[11px] text-white/65">
                 {b}
               </span>
             ))}
           </span>
         )}
         {!ocultarFecha && (
-          <span className="text-[11px] font-semibold text-white/70">
+          <span className="text-xs font-semibold text-white/70">
             {tipo.abreEl ? <CuentaTexto fecha={tipo.abreEl} recargarAlTerminar /> : "Fecha a confirmar"}
           </span>
         )}
@@ -118,15 +118,15 @@ function TipoOpcion({
         {tipo.beneficios.length > 0 && (
           <span className="flex flex-wrap gap-1">
             {tipo.beneficios.map((b) => (
-              <span key={b} className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[10.5px] text-white/80">
+              <span key={b} className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] text-white/80">
                 {b}
               </span>
             ))}
           </span>
         )}
         <span
-          className="text-[11px] font-semibold"
-          style={{ color: disabled ? "rgba(255,255,255,0.5)" : tipo.disponibles <= 15 ? "#fbbf24" : anticipada ? "#f0b56a" : vip ? "#f0d389" : "#7ed49a" }}
+          className="text-xs font-semibold"
+          style={{ color: disabled ? "rgba(255,255,255,0.6)" : tipo.disponibles <= 15 ? "#fbbf24" : anticipada ? "#f0b56a" : vip ? "#f0d389" : "#7ed49a" }}
         >
           {estado}
         </span>
@@ -151,12 +151,15 @@ export function CompraEntradas({
   tipos,
   whatsapp = "",
   fiestaProximamente = false,
+  medios = [],
 }: {
   evento: Evento;
   tipos: TipoEntradaDisponible[];
   whatsapp?: string;
   /** Toda la fiesta en próximamente: la fecha de apertura se muestra arriba, no en cada tipo. */
   fiestaProximamente?: boolean;
+  /** Medios de pago activos (para no prometer uno que no está). */
+  medios?: PaymentMethod[];
 }) {
   const router = useRouter();
   const visibles = tipos.filter((t) => t.activo);
@@ -240,7 +243,7 @@ export function CompraEntradas({
               </>
             )}
           </h2>
-          {primero && <span className="text-[11px] text-white/45">1 tipo por compra</span>}
+          {primero && <span className="text-xs text-white/55">1 tipo por compra</span>}
         </div>
         {visibles.map((t) =>
           t.fase === "proximamente" ? (
@@ -318,7 +321,7 @@ export function CompraEntradas({
               className="campo"
               placeholder="tu@email.com"
             />
-            <p className="text-[11px] text-white/40">Si no lo ves, revisá Spam o Promociones.</p>
+            <p className="text-xs text-white/55">Revisá que esté bien escrito. Si no te llega, mirá en Spam o Promociones.</p>
           </div>
 
           <AnimatePresence mode="wait">
@@ -354,12 +357,18 @@ export function CompraEntradas({
           <button type="submit" disabled={loading || !tipo?.comprable} className="btn-oro h-[58px] text-base">
             {loading ? "Procesando…" : "Continuar al pago →"}
           </button>
-          <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-white/50">
-            <span className="rounded-md bg-[#009ee3] px-2 py-1 text-[10px] font-bold text-white">Mercado Pago</span>
-            <span>o</span>
-            <span className="rounded-md bg-white/10 px-2 py-1 text-[10px] font-bold text-white">Transferencia</span>
-            <span>· elegís en el próximo paso</span>
-          </div>
+          {(medios.includes("mp") || medios.includes("talo")) && (
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-white/60">
+              {medios.includes("mp") && (
+                <span className="rounded-md bg-[#009ee3] px-2 py-1 text-[11px] font-bold text-white">Mercado Pago</span>
+              )}
+              {medios.includes("mp") && medios.includes("talo") && <span>o</span>}
+              {medios.includes("talo") && (
+                <span className="rounded-md bg-white/10 px-2 py-1 text-[11px] font-bold text-white">Transferencia</span>
+              )}
+              <span>{medios.length > 1 ? "· elegís en el próximo paso" : "· pago seguro"}</span>
+            </div>
+          )}
         </form>
       ) : hayProximos ? (
         <div className="tarjeta flex flex-col items-center gap-3 p-5 text-center">
@@ -409,7 +418,7 @@ export function StickyCta({ precioDesde, targetId }: { precioDesde: number | nul
           className="safe-bottom fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-oro/30 bg-noche/90 px-5 pt-3 backdrop-blur-md lg:hidden"
         >
           <div className="flex flex-col">
-            <span className="text-[11px] text-white/55">Desde</span>
+            <span className="text-xs text-white/60">Desde</span>
             <span className="font-display text-lg font-extrabold text-oro-claro">
               {precioDesde !== null ? formatPrecio(precioDesde) : "—"}
             </span>

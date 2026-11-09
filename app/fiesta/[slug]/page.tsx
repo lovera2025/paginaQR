@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { getBranding, getEventoBySlug, getEventoCatalogo } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/cookies";
 import { getMensajePostergado } from "@/lib/evento/messages";
+import { getModoPagos } from "@/lib/payments/modo";
 import { formatPrecio, horaCorta, whatsappHref, ddmm } from "@/lib/utils";
 import { CompraEntradas, StickyCta } from "@/components/publico/CompraEntradas";
 import { CompartirBoton } from "@/components/publico/CompartirBoton";
@@ -30,10 +31,13 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   if (!data) return { title: "Fiesta no encontrada" };
   const { evento } = data;
   const titulo = `${evento.nombre} — Recepción ${ddmm(evento.fecha)}`;
+  const descripcion = `${evento.subtitulo || "Recepción Promo 2026"} · ${evento.lugar}. Comprá tu entrada online con QR.`;
+  // La imagen para compartir la arma app/fiesta/[slug]/opengraph-image.tsx (flyer + datos, 1200×630).
   return {
     title: titulo,
-    description: `${evento.subtitulo || "Recepción Promo 2026"} · ${evento.lugar}. Comprá tu entrada online con QR.`,
-    openGraph: { title: titulo, images: evento.flyerUrl ? [{ url: evento.flyerUrl }] : undefined },
+    description: descripcion,
+    openGraph: { title: titulo, description: descripcion, type: "website", locale: "es_AR" },
+    twitter: { card: "summary_large_image", title: titulo, description: descripcion },
   };
 }
 
@@ -52,7 +56,7 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
   const data = await cargar(params.slug);
   if (!data) notFound();
   const { evento, publica } = data;
-  const [catalogo, branding] = await Promise.all([getEventoCatalogo(evento.id), getBranding()]);
+  const [catalogo, branding, modo] = await Promise.all([getEventoCatalogo(evento.id), getBranding(), getModoPagos()]);
   if (!catalogo) notFound();
 
   const pausado = evento.estado === "pausado";
@@ -218,10 +222,11 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
                 tipos={catalogo.tipos}
                 whatsapp={telefono}
                 fiestaProximamente={proximamente}
+                medios={modo.methods}
               />
             )}
             {!pausado && branding.politicaAnulacion && (
-              <p className="mt-4 text-center text-[11px] leading-relaxed text-white/40">{branding.politicaAnulacion}</p>
+              <p className="mt-4 text-center text-xs leading-relaxed text-white/55">{branding.politicaAnulacion}</p>
             )}
           </section>
 

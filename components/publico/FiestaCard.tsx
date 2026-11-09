@@ -76,7 +76,7 @@ export function FiestaCard({ item, index, proxima }: { item: EventoCatalogo; ind
           )}
           {badge && (
             <span
-              className={`absolute left-2.5 top-2.5 rounded-full px-2.5 py-1 font-display text-[9.5px] font-extrabold tracking-[0.08em] ${badge.clase}`}
+              className={`absolute left-2.5 top-2.5 max-w-[calc(100%-20px)] rounded-full px-2.5 py-1 font-display text-[10px] font-extrabold leading-tight tracking-[0.06em] ${badge.clase}`}
             >
               {badge.texto}
             </span>
@@ -88,7 +88,7 @@ export function FiestaCard({ item, index, proxima }: { item: EventoCatalogo; ind
             <span className="line-clamp-2 font-display text-[13px] font-bold leading-tight text-white sm:text-sm">
               {evento.nombre}
             </span>
-            <span className="text-[11px] text-white/65">{evento.lugar}</span>
+            <span className="text-xs text-white/70">{evento.lugar}</span>
             {item.proximamente && (
               <span className="mt-1 text-xs font-semibold text-white/75">
                 {item.abreEl ? `Venta desde el ${ddmm(item.abreEl)}` : "Próximamente"}

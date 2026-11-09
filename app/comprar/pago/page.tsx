@@ -450,9 +450,9 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
         </div>
       )}
 
-      <div className="mb-6 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-100">
-        <p className="font-semibold">Importante</p>
-        <ul className="mt-2 list-inside list-disc space-y-1 text-blue-100/90">
+      <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/85">
+        <p className="font-semibold text-oro-claro">Importante</p>
+        <ul className="mt-2 list-inside list-disc space-y-1 text-white/75">
           <li>Transferí el monto exacto: {formatPrecio(payment.amount)}</li>
           <li>Al acreditarse, tus entradas con QR aparecen en pantalla</li>
           <li>Compra registrada a nombre de <strong>{payment.compradorEmail}</strong></li>

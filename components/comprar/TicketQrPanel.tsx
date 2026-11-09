@@ -116,7 +116,7 @@ export function TicketQrPanel({ orden }: { orden: Orden }) {
             <IconDescargar />
             {activas.length > 1 ? `Descargar las ${activas.length} entradas (PDF)` : "Descargar entrada (PDF)"}
           </a>
-          <p className="text-center text-[11px] text-white/45">
+          <p className="text-center text-xs text-white/60">
             Guardala antes de ir: en el predio puede no haber señal.
           </p>
         </div>

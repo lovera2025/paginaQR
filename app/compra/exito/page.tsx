@@ -103,7 +103,7 @@ function ExitoContent() {
               : "Apenas se confirme el pago, tus entradas aparecen en esta pantalla.")}
         </p>
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-oro" />
-        <p className="text-[11px] text-white/40">No cierres esta pantalla. Las entradas solo se liberan con el pago confirmado.</p>
+        <p className="text-xs text-white/55">No cierres esta pantalla. Las entradas solo se liberan con el pago confirmado.</p>
       </div>
     );
   }
@@ -129,6 +129,9 @@ function ExitoContent() {
         </p>
         <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm">
           Tu código de compra: <strong className="font-mono tracking-[0.12em] text-oro-claro">{codigo}</strong>
+        </p>
+        <p className="text-xs text-white/60">
+          Te escribimos a <strong className="text-white/85">{orden.compradorEmail}</strong> para coordinar la devolución.
         </p>
         {wa && (
           <a href={wa} target="_blank" rel="noopener noreferrer" className="btn-oro h-12 px-6 text-sm">

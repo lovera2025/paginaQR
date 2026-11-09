@@ -223,7 +223,10 @@ export function ordenarTipos<T extends Pick<TipoEntrada, "orden" | "precio">>(ti
   return [...tipos].sort((a, b) => a.orden - b.orden || a.precio - b.precio);
 }
 
-function contarVendidas(tickets: Ticket[]): Map<string, number> {
+/** Lo único que hace falta de cada entrada para contar cupos. */
+export type TicketConteo = Pick<Ticket, "eventoId" | "tipoEntradaId" | "cancelado">;
+
+function contarVendidas(tickets: Pick<Ticket, "tipoEntradaId" | "cancelado">[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const t of tickets) {
     if (t.cancelado) continue;
@@ -281,7 +284,7 @@ function contarReservadas(reservas: Reserva[]): Map<string, number> {
 export function evaluarTipos(
   evento: Evento,
   tipos: TipoEntrada[],
-  tickets: Ticket[],
+  tickets: Pick<Ticket, "tipoEntradaId" | "cancelado">[],
   now: Date = new Date(),
   reservas: Reserva[] = []
 ): TipoEntradaDisponible[] {
@@ -353,7 +356,7 @@ export function tipoParaPublico(tipo: TipoEntradaDisponible): TipoEntradaDisponi
 export function buildCatalogo(
   evento: Evento,
   tipos: TipoEntrada[],
-  tickets: Ticket[],
+  tickets: Pick<Ticket, "tipoEntradaId" | "cancelado">[],
   now: Date = new Date(),
   reservas: Reserva[] = []
 ): EventoCatalogo {

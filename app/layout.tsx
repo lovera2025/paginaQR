@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Great_Vibes, Inter, Righteous } from "next/font/google";
 import "./globals.css";
+import { getAppUrl } from "@/lib/config";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 // Righteous: geométrica y redondeada, la más parecida a las letras del logo de Junior Eventos. Tiene un solo peso.
@@ -8,6 +9,8 @@ const righteous = Righteous({ subsets: ["latin"], weight: "400", variable: "--fo
 const greatVibes = Great_Vibes({ subsets: ["latin"], weight: "400", variable: "--font-script", display: "swap" });
 
 export const metadata: Metadata = {
+  // Necesario para que las imágenes para compartir salgan con la URL completa del sitio.
+  metadataBase: new URL(getAppUrl()),
   title: "Junior Eventos — Recepciones Promo 2026",
   description:
     "Entradas para las recepciones de egresados Promo 2026. Elegí tu fiesta, pagá online y recibí tu entrada con QR al instante.",
