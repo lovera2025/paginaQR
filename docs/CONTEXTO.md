@@ -20,6 +20,7 @@
   - El pago de MP se aprueba solo si el monto pagado cubre la compra.
   - El precio viejo de la fiesta (`eventos.precio`) ya no se publica.
 - **Supabase nuevo**: proyecto `junior-eventos` (ref `jllfdxxleszeimsxruva`, São Paulo, plan gratis) en la org `lovera2025's Org`. Ya tiene `schema.sql`, `storage.sql`, la migración `2026_11_modo_prueba_proximamente_anulaciones.sql` y el seed de las 9 fiestas (en borrador). URL y clave pública ya están en `.env.local`.
+  - **Decisión (9 nov): se lanza con `junior-eventos`.** El de junio `paginaqr-eventos` (otra cuenta/org, ref `vzstuqpbqaunuhcuitix`) queda **pausado** con los PINs y ventas de junio. Supabase permite 2 proyectos gratis activos por dueño: `lovera2025` tiene ArguelloApp + junior-eventos. **ArguelloApp no se pausa nunca.**
 
 ### Probado (9 nov, local)
 - Portada, fiesta, pago simulado, éxito, PDF (3 páginas con logo), admin (Compras, Anular, Entradas y precios, Pagos), /staff en 375 px sin scroll horizontal.
