@@ -26,7 +26,7 @@
 - La CLI de Vercel quedó con sesión iniciada en esta PC (`npx vercel ...`); el conector de Vercel de Claude sigue sin acceso al equipo.
 
 ### Qué falta (en este orden)
-1. **Elegir los PIN** (usuario): hasta que se elijan, nadie puede entrar al panel publicado (en producción el `1234` no entra). Se hace una sola vez desde la compu: levantar la web local → `/staff` con `1234` → Seguridad → Cambiar los PIN. Quedan guardados en la base y valen para la web publicada.
+1. ~~Elegir los PIN~~ ✅ hecho por el usuario el 10 nov (guardados en la base, seguros y distintos; el `1234` ya no entra en ningún lado, tampoco en la web local). Se cambian desde Panel → Seguridad. Si se olvidan: no hay recuperación desde la web; hay que borrar la fila de `app_pins` en Supabase y volver a crearlos desde la web local con `1234`.
 2. **WhatsApp de contacto** (jefe): Panel → Marca. Sin él no aparecen los botones de ayuda, anulación ni "Avisame cuando abra".
 3. **Conectar Mercado Pago real** (jefe): Panel → Pagos, 3 pasos. La compra se activa sola. Después, una compra real de una anticipada para confirmar que la plata entra, y anularla desde Compras.
 4. **Probar en la dirección pública** lo que no se pudo probar en la compu: que Mercado Pago vuelve solo a la página, que en Actividad aparece "Mercado Pago … aprobado" (aviso automático) y la **cámara del scanner en un celular**. Se cubre con la compra real del paso 3.
