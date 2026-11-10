@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { EntradaCard } from "@/components/entradas/EntradaCard";
 import { IconQr } from "@/components/publico/iconos";
 import { ESTILO_LABELS, getEstiloEntrada } from "@/lib/entradas/estilos";
-import { TIPO_PRESETS } from "@/lib/entradas/tipos";
+import { fiestaEnProximamente, TIPO_PRESETS } from "@/lib/entradas/tipos";
 import { ddmm, formatPrecio, isoToDatetimeLocalAr } from "@/lib/utils";
 import type { EntradaEstilo, Evento, StatsPorTipo, TipoEntradaDisponible } from "@/types";
 
@@ -118,6 +118,7 @@ export function TiposEntradaPanel({
     cargar();
   }, [cargar]);
 
+  const fiestaProx = fiestaEnProximamente(evento);
   const recaudadoPorTipo = useMemo(() => new Map(porTipo.map((p) => [p.tipoEntradaId, p.recaudado])), [porTipo]);
   const sumaCupos = (tipos ?? []).filter((t) => t.activo && t.cupo !== null).reduce((s, t) => s + (t.cupo ?? 0), 0);
   const hayAbiertos = (tipos ?? []).some((t) => t.activo && t.cupo === null);
@@ -137,7 +138,8 @@ export function TiposEntradaPanel({
       precio: Number(form.precio),
       cupo: form.cupo.trim() === "" ? null : Number(form.cupo),
       proximamente: form.estadoVenta !== "venta",
-      mostrarPrecioPrevio: form.estadoVenta !== "venta" && form.mostrarPrecioPrevio,
+      // También vale cuando la fiesta entera está en Próximamente (el tipo ya está "a la venta").
+      mostrarPrecioPrevio: (form.estadoVenta !== "venta" || fiestaProx) && form.mostrarPrecioPrevio,
       ventaDesde: form.estadoVenta === "fecha" ? aIso(form.ventaDesde) : null,
       ventaHasta: aIso(form.ventaHasta),
       estilo: form.estilo,
@@ -427,13 +429,22 @@ export function TiposEntradaPanel({
                     Venta hasta (vacío = hasta el día)
                     <input type="datetime-local" value={form.ventaHasta} onChange={(e) => setForm({ ...form, ventaHasta: e.target.value })} className="campo [color-scheme:dark]" />
                   </label>
-                  {form.estadoVenta !== "venta" && (
+                  {(form.estadoVenta !== "venta" || fiestaProx) && (
                     <div className="col-span-2 flex flex-col gap-2 rounded-xl border border-sky-400/25 bg-sky-400/[0.06] px-4 py-3 text-xs text-sky-100/85">
                       <span>
-                        En la página se ve como <strong>PRÓXIMAMENTE</strong>, sin precio ni cantidad.
-                        {form.estadoVenta === "fecha"
-                          ? " Muestra la cuenta regresiva y abre sola cuando llega la fecha."
-                          : " Queda así hasta que la pases a \"A la venta\"."}{" "}
+                        {form.estadoVenta === "venta" ? (
+                          <>
+                            La fiesta entera está en <strong>PRÓXIMAMENTE</strong>: esta entrada se va a vender cuando
+                            abras la fiesta.
+                          </>
+                        ) : (
+                          <>
+                            En la página se ve como <strong>PRÓXIMAMENTE</strong>, sin precio ni cantidad.
+                            {form.estadoVenta === "fecha"
+                              ? " Muestra la cuenta regresiva y abre sola cuando llega la fecha."
+                              : " Queda así hasta que la pases a \"A la venta\"."}
+                          </>
+                        )}{" "}
                         El precio lo podés cambiar antes de abrir.
                       </span>
                       <label className="flex items-center gap-2 text-white/80">

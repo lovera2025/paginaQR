@@ -49,6 +49,11 @@ export function calcularModoPagos(settings: PaymentSettings, appMode: ReturnType
   return { appMode, simulate, sandbox, sinMedios: !simulate && methods.length === 0, methods, mp, talo };
 }
 
+/** Los compradores pagan de verdad: hay un medio activo y ninguno es de prueba ni simulado. */
+export function cobraDeVerdad(modo: Pick<ModoPagos, "simulate" | "sandbox" | "sinMedios">): boolean {
+  return !modo.simulate && !modo.sandbox && !modo.sinMedios;
+}
+
 export async function getModoPagos(): Promise<ModoPagos> {
   return calcularModoPagos(await getPaymentSettings(), getAppMode());
 }

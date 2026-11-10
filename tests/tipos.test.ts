@@ -134,7 +134,7 @@ describe("validaciones de compra", () => {
     expect(normalizarTipoInput({ nombre: "X", precio: 0 }, false)).toEqual({ error: "El precio debe ser mayor a 0" });
     expect(
       normalizarTipoInput({ nombre: "X", precio: 1, ventaDesde: "2026-12-02", ventaHasta: "2026-12-01" }, false)
-    ).toEqual({ error: "'Venta desde' tiene que ser anterior a 'venta hasta'" });
+    ).toEqual({ error: "La apertura de la venta tiene que ser anterior al cierre" });
   });
 
   it("arma links únicos", () => {

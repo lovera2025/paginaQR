@@ -162,7 +162,7 @@ export async function processTaloPayment(
     return { ok: true };
   }
 
-  const ref = `Talo ${paymentId.slice(0, 12)} · compra ${ordenId.slice(0, 8)}`;
+  const ref = `Transferencia (Talo ${paymentId.slice(0, 12)}) · compra ${ordenId.slice(0, 8)}`;
   const acreditada = payment.payment_status === "SUCCESS" || payment.payment_status === "OVERPAID";
 
   // La transferencia llegó después de que la compra se cerró (ej. vencida): se reabre para emitir

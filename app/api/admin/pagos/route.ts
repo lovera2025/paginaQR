@@ -46,7 +46,7 @@ export async function POST(request: Request) {
 
   if (provider === "mp") {
     const environment =
-      body.environment === "sandbox" ? "sandbox" : "production";
+      body.environment === "auto" ? "auto" : body.environment === "sandbox" ? "sandbox" : "production";
 
     const result = await saveMpCredentials({
       accessToken: body.accessToken ? String(body.accessToken) : undefined,
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, environment: result.environment });
   }
 
   const environment: TaloEnvironment =

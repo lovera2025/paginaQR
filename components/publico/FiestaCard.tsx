@@ -92,6 +92,12 @@ export function FiestaCard({ item, index, proxima }: { item: EventoCatalogo; ind
             {item.proximamente && (
               <span className="mt-1 text-xs font-semibold text-white/75">
                 {item.abreEl ? `Venta desde el ${ddmm(item.abreEl)}` : "Próximamente"}
+                {precioDesde !== null && (
+                  <>
+                    {" · desde "}
+                    <span className="text-oro">{formatPrecio(precioDesde)}</span>
+                  </>
+                )}
               </span>
             )}
             {!item.proximamente && precioDesde !== null && (

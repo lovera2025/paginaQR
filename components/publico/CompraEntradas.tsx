@@ -418,7 +418,11 @@ export function CompraEntradas({
       ) : hayProximos ? (
         <div className="tarjeta flex flex-col items-center gap-3 p-5 text-center">
           <p className="font-display text-lg font-extrabold">Todavía no abrió la venta</p>
-          <p className="text-sm text-white/60">Las entradas salen muy pronto. Te avisamos por WhatsApp.</p>
+          <p className="text-sm text-white/60">
+            {waAvisame
+              ? "Las entradas salen muy pronto. Te avisamos por WhatsApp."
+              : "Las entradas salen muy pronto. Volvé a entrar en unos días para comprar la tuya."}
+          </p>
           {waAvisame && (
             <a
               href={waAvisame}
@@ -433,7 +437,7 @@ export function CompraEntradas({
         </div>
       ) : (
         <div className="tarjeta p-5 text-center text-sm text-white/65">
-          No hay entradas disponibles en este momento. Consultá por WhatsApp.
+          No hay entradas disponibles en este momento.{whatsapp ? " Consultá por WhatsApp." : ""}
         </div>
       )}
     </div>

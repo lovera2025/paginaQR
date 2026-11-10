@@ -155,16 +155,16 @@ export function normalizarTipoInput(
   }
   if (!parcial || raw.ventaDesde !== undefined) {
     const v = toIsoOrNull(raw.ventaDesde);
-    if (v === "invalid") return { error: "Fecha 'venta desde' inválida" };
+    if (v === "invalid") return { error: "La fecha de apertura no es válida" };
     out.ventaDesde = v;
   }
   if (!parcial || raw.ventaHasta !== undefined) {
     const v = toIsoOrNull(raw.ventaHasta);
-    if (v === "invalid") return { error: "Fecha 'venta hasta' inválida" };
+    if (v === "invalid") return { error: "La fecha de cierre no es válida" };
     out.ventaHasta = v;
   }
   if (out.ventaDesde && out.ventaHasta && out.ventaDesde >= out.ventaHasta) {
-    return { error: "'Venta desde' tiene que ser anterior a 'venta hasta'" };
+    return { error: "La apertura de la venta tiene que ser anterior al cierre" };
   }
   if (!parcial || raw.estilo !== undefined) {
     const estilo = String(raw.estilo ?? "general") as EntradaEstilo;
@@ -376,11 +376,14 @@ export function buildCatalogo(
     .map((t) => t.abreEl)
     .filter((f): f is string => Boolean(f))
     .sort();
+  // En próximamente solo se anticipa el precio de los tipos que el admin eligió mostrar.
+  const preciosAnticipados = proximos.filter((t) => t.mostrarPrecioPrevio).map((t) => t.precio);
+  const precioProximamente = preciosAnticipados.length ? Math.min(...preciosAnticipados) : null;
 
   return {
     // `evento.precio` es un campo viejo (= precio de la General): no se publica.
     evento: { ...evento, precio: 0 },
-    precioDesde: proximamente ? null : precioDesde,
+    precioDesde: proximamente ? precioProximamente : precioDesde,
     disponibles: Math.max(0, evento.capacidad - activos),
     anticipadaHasta: anticipada?.ventaHasta ?? null,
     proximamente,

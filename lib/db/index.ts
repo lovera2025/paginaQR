@@ -9,6 +9,7 @@ import type {
   NuevoEventoInput,
   OrdenProblema,
   PaymentMethod,
+  TipoEntrada,
   TipoEntradaInput,
 } from "@/types";
 
@@ -85,6 +86,60 @@ export async function deleteTipo(tipoId: string) {
 
 export async function reordenarTipos(eventoId: string, ids: string[]) {
   return sb() ? supabase.reordenarTipos(eventoId, ids) : mock.reordenarTipos(eventoId, ids);
+}
+
+// ─── Cambios en todas las fiestas ────────────────────────────────────────
+
+/** Lo único que se repite en las demás fiestas: precio y apertura/cierre de la venta. */
+const CAMPOS_EN_TODAS = ["precio", "proximamente", "mostrarPrecioPrevio", "ventaDesde", "ventaHasta"] as const;
+
+/**
+ * Repite un cambio de precio o de apertura/cierre en el tipo equivalente (mismo nombre y diseño)
+ * de las demás fiestas sin finalizar. No toca cupos, textos ni diseño, ni las compras ya hechas.
+ * `base` es el tipo tal como estaba antes del cambio.
+ */
+export async function updateTipoEnOtrasFiestas(
+  base: Pick<TipoEntrada, "eventoId" | "nombre" | "estilo">,
+  input: Partial<TipoEntradaInput>
+): Promise<{ actualizadas: number; omitidas: string[] }> {
+  const cambio: Partial<TipoEntradaInput> = {};
+  for (const campo of CAMPOS_EN_TODAS) {
+    if (input[campo] !== undefined) Object.assign(cambio, { [campo]: input[campo] });
+  }
+  if (Object.keys(cambio).length === 0) return { actualizadas: 0, omitidas: [] };
+
+  const nombre = base.nombre.trim().toLowerCase();
+  let actualizadas = 0;
+  const omitidas: string[] = [];
+  for (const evento of await getEventosAdmin()) {
+    if (evento.id === base.eventoId) continue;
+    const hermanos = (await getTiposByEvento(evento.id)).filter(
+      (t) => t.estilo === base.estilo && t.nombre.trim().toLowerCase() === nombre
+    );
+    for (const t of hermanos) {
+      const desde = cambio.ventaDesde !== undefined ? cambio.ventaDesde : t.ventaDesde;
+      const hasta = cambio.ventaHasta !== undefined ? cambio.ventaHasta : t.ventaHasta;
+      if (desde && hasta && desde >= hasta) {
+        omitidas.push(evento.nombre);
+        continue;
+      }
+      const r = await updateTipo(t.id, cambio);
+      if ("error" in r) omitidas.push(evento.nombre);
+      else actualizadas += 1;
+    }
+  }
+  return { actualizadas, omitidas };
+}
+
+/** Saca de "Próximamente" a las fiestas publicadas: empiezan a vender según sus tipos de entrada. */
+export async function abrirVentaPublicadas(): Promise<{ abiertas: string[] }> {
+  const abiertas: string[] = [];
+  for (const evento of await getEventosAdmin()) {
+    if (evento.estado !== "venta" || !evento.proximamente) continue;
+    const r = await updateEvento(evento.id, { proximamente: false, ventaAbre: null });
+    if (!("error" in r)) abiertas.push(evento.nombre);
+  }
+  return { abiertas };
 }
 
 // ─── Órdenes ─────────────────────────────────────────────────────────────

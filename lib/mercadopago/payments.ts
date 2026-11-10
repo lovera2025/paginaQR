@@ -51,7 +51,7 @@ export async function processMpPayment(payment: MpPayment): Promise<ResultadoPag
   // Con cuentas de prueba (vendedor y comprador de prueba) MP devuelve live_mode = true: solo
   // live_mode = false asegura que es de prueba; si no, decide el ambiente cargado en Admin → Pagos.
   const modo = payment.live_mode === false ? "sandbox" : undefined;
-  const ref = `MP ${mpPaymentId} · compra ${ordenId.slice(0, 8)}`;
+  const ref = `Mercado Pago (pago ${mpPaymentId}) · compra ${ordenId.slice(0, 8)}`;
 
   if (orden.estado === "aprobado") {
     await approveOrden(ordenId, mpPaymentId, "mp", modo);

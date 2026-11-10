@@ -1,8 +1,8 @@
 import type { EventoEstado } from "@/types";
 
 export const EVENTO_ESTADO_LABELS: Record<EventoEstado, string> = {
-  borrador: "Borrador — pruebas",
-  venta: "Venta abierta",
+  borrador: "Borrador — no se ve en la página",
+  venta: "Publicada",
   pausado: "Ventas pausadas",
   finalizado: "Finalizado",
 };

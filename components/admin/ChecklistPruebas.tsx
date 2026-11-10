@@ -6,16 +6,16 @@ const LS = "admin.checklistPruebas";
 
 /** Pasos para probar el sistema de punta a punta antes de lanzar. Se recuerda en este teléfono. */
 const PASOS = [
-  "Pagos en Prueba: la página muestra MODO PRUEBA arriba",
-  "Comprar 1 Anticipada con tarjeta APRO → vuelve solo y aparecen las entradas con QR",
-  "Antes de aprobar el pago no se ve ninguna entrada (solo \"Esperando confirmación\")",
+  "Con la cuenta de prueba conectada, la página muestra MODO PRUEBA arriba",
+  "Comprar 1 Anticipada con tarjeta APRO: vuelve sola y aparecen las entradas con su QR",
+  "Antes de que se apruebe el pago no se ve ninguna entrada",
   "Descargar el PDF de la compra: una página por entrada, con el QR",
-  "Llega el mail [PRUEBA] con las entradas y el botón de descarga",
+  "Mis entradas muestra la compra en el mismo celular",
   "Scanner: el QR da verde la primera vez y amarillo (ya ingresó) la segunda",
-  "Comprar con tarjeta OTHE → pago rechazado, sin entradas",
-  "Comprar 3 VIP, anular 1 desde Compras → esa da rojo en la puerta y el PDF trae 2",
-  "Actividad muestra \"MP … → aprobado\" (el aviso de Mercado Pago llegó)",
-  "Reiniciar ventas en cada fiesta y pasar Mercado Pago a Producción",
+  "Comprar con tarjeta OTHE: pago rechazado, sin entradas",
+  "Comprar 3, anular 1 desde Compras: esa da rojo en la puerta y el PDF trae 2",
+  "Actividad muestra \"Mercado Pago … aprobado\" (el aviso automático llegó)",
+  "Reiniciar ventas en la fiesta y conectar la cuenta real de Mercado Pago",
 ];
 
 export function ChecklistPruebas() {
@@ -45,7 +45,7 @@ export function ChecklistPruebas() {
   return (
     <details className="rounded-2xl border border-white/10 bg-white/5 p-5">
       <summary className="cursor-pointer text-base font-bold">
-        Checklist antes de lanzar ({hechos.length}/{PASOS.length})
+        Lista de pruebas antes de vender ({hechos.length}/{PASOS.length})
       </summary>
       <div className="mt-3 flex flex-col gap-1.5">
         {PASOS.map((paso, i) => (

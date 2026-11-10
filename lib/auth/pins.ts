@@ -44,13 +44,13 @@ function validateNewPins(
   newScanner: string
 ): { ok: true } | { error: string } {
   if (newAdmin.length < 6) {
-    return { error: "El PIN admin debe tener al menos 6 caracteres" };
+    return { error: "El PIN del organizador debe tener al menos 6 números" };
   }
   if (newScanner.length < 6) {
-    return { error: "El PIN scanner debe tener al menos 6 caracteres" };
+    return { error: "El PIN de puerta debe tener al menos 6 números" };
   }
   if (newAdmin === newScanner) {
-    return { error: "El PIN admin y el scanner deben ser distintos" };
+    return { error: "Los dos PIN tienen que ser distintos" };
   }
   return { ok: true };
 }
@@ -112,7 +112,7 @@ export async function changeAppPins(
   const current = await getAppPins();
 
   if (input.pinActual !== current.adminPin) {
-    return { error: "PIN admin actual incorrecto" };
+    return { error: "Tu PIN actual no es correcto" };
   }
 
   const validation = validateNewPins(input.pinAdminNuevo, input.pinScannerNuevo);

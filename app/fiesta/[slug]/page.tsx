@@ -225,7 +225,7 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
                 medios={modo.methods}
               />
             )}
-            {!pausado && branding.politicaAnulacion && (
+            {!pausado && !proximamente && branding.politicaAnulacion && (
               <p className="mt-4 text-center text-xs leading-relaxed text-white/55">{branding.politicaAnulacion}</p>
             )}
           </section>

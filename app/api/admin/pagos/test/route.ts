@@ -22,11 +22,15 @@ export async function POST(request: Request) {
       (result.environment === "production" && esPrueba);
     return NextResponse.json({
       ok: true,
-      message: `Conexión con Mercado Pago OK · token de ${esPrueba ? "PRUEBA" : result.tokenTipo === "produccion" ? "PRODUCCIÓN (cobra de verdad)" : "tipo desconocido"}`,
+      message: esPrueba
+        ? "Cuenta de prueba conectada · no se cobra de verdad"
+        : result.tokenTipo === "produccion"
+          ? "Cuenta conectada · cobros reales"
+          : "Cuenta conectada",
       environment: result.environment,
       tokenTipo: result.tokenTipo,
       advertencia: noCoincide
-        ? "El token no coincide con el ambiente elegido. Cambiá el ambiente o pegá el otro token antes de vender."
+        ? "La clave y el tipo de cobro guardado no coinciden. Volvé a pegar la clave y tocá Guardar y verificar."
         : null,
     });
   }
