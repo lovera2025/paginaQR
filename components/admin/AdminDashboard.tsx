@@ -1605,10 +1605,10 @@ export function AdminDashboard() {
                 {draft.proximamente && draft.ventaAbre ? " Abre sola cuando llega la fecha." : ""}
                 {" "}Tocá &quot;Guardar cambios&quot; para aplicarlo.
               </p>
-              {draft.proximamente && (
+              {(
                 <div className="mt-4">
                   <label htmlFor="fiesta-msg-prox" className="mb-1 block text-sm text-white/60">
-                    Mensaje que ve la gente mientras está en Próximamente
+                    Mensaje que ve la gente mientras todavía no se puede comprar
                   </label>
                   <textarea
                     id="fiesta-msg-prox"
@@ -1620,7 +1620,9 @@ export function AdminDashboard() {
                     className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
                   />
                   <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs text-white/40">Vacío = el texto de ejemplo.</p>
+                    <p className="text-xs text-white/40">
+                      Se muestra en Próximamente y mientras no haya Mercado Pago conectado. Vacío = el texto de ejemplo.
+                    </p>
                     {eventos.length > 1 && (
                       <button
                         type="button"

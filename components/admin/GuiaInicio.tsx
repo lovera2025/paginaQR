@@ -128,7 +128,7 @@ export function GuiaInicio({ version, onIr, onCerrar, onToast, onChanged }: Prop
         <div>
           <h2 className="font-display text-lg font-extrabold">Puesta en marcha</h2>
           <p className="mt-0.5 text-sm text-white/60">
-            {hechos === 5 ? "Todo listo: la venta está funcionando." : `${hechos} de 5 pasos listos. Seguí el orden y en minutos queda vendiendo.`}
+            {hechos === 5 ? "Todo listo: la venta está funcionando." : `${hechos} de 5 pasos listos. Completalos y la venta queda funcionando.`}
           </p>
         </div>
         <button type="button" onClick={onCerrar} className="h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-white/75 hover:bg-white/5">
@@ -156,7 +156,7 @@ export function GuiaInicio({ version, onIr, onCerrar, onToast, onChanged }: Prop
               ? "Cuenta conectada: la plata de las ventas entra en esa cuenta."
               : estado.cobros === "prueba"
                 ? "Está en modo prueba: todavía no se cobra de verdad."
-                : "Conectá la cuenta que va a recibir la plata de las ventas."
+                : "Conectá la cuenta que va a recibir la plata. Apenas la conectes, la compra se activa sola."
           }
         >
           <button type="button" onClick={() => onIr("pagos")} className={BTN}>
@@ -177,10 +177,16 @@ export function GuiaInicio({ version, onIr, onCerrar, onToast, onChanged }: Prop
         <Paso
           n={5}
           hecho={ventaAbierta}
-          titulo="Abrir la venta"
+          titulo="Publicar las fiestas"
           detalle={
             ventaAbierta
-              ? `Venta abierta en ${estado.publicadas} ${estado.publicadas === 1 ? "fiesta" : "fiestas"}.`
+              ? `${estado.publicadas} ${estado.publicadas === 1 ? "fiesta publicada" : "fiestas publicadas"}${
+                  estado.borrador > 0 ? ` y ${estado.borrador} en borrador` : ""
+                }. ${
+                  estado.cobros === "real"
+                    ? "Ya se puede comprar."
+                    : "La gente ve las entradas y los precios; la compra se activa sola al conectar Mercado Pago."
+                }`
               : estado.publicadas === 0
                 ? "Publicá cada fiesta desde Resumen (botón Publicar) para que aparezca en la página."
                 : estado.cobros !== "real"

@@ -225,9 +225,10 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
                 whatsapp={telefono}
                 fiestaProximamente={proximamente}
                 medios={modo.methods}
+                sinCobros={modo.sinMedios}
               />
             )}
-            {!pausado && !proximamente && branding.politicaAnulacion && (
+            {!pausado && !proximamente && !modo.sinMedios && branding.politicaAnulacion && (
               <p className="mt-4 text-center text-xs leading-relaxed text-white/55">{branding.politicaAnulacion}</p>
             )}
           </section>
@@ -257,7 +258,7 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
       </div>
 
       <SiteFooter branding={branding} />
-      {!pausado && !proximamente && <StickyCta precioDesde={catalogo.precioDesde} targetId="comprar" />}
+      {!pausado && !proximamente && !modo.sinMedios && <StickyCta precioDesde={catalogo.precioDesde} targetId="comprar" />}
       {(pausado || proximamente) && <WhatsappFab telefono={telefono} />}
       <span className="sr-only">{catalogo.precioDesde !== null ? `Desde ${formatPrecio(catalogo.precioDesde)}` : ""}</span>
     </main>

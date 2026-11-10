@@ -51,7 +51,13 @@ export default async function HomePage() {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-5">
             {catalogo.map((item, i) => (
-              <FiestaCard key={item.evento.id} item={item} index={i} proxima={item.evento.id === proxima?.id} />
+              <FiestaCard
+                key={item.evento.id}
+                item={item}
+                index={i}
+                proxima={item.evento.id === proxima?.id}
+                sinCobros={modo.sinMedios}
+              />
             ))}
             <div className="flex aspect-[9/16] flex-col items-center justify-center gap-2.5 rounded-[20px] border border-dashed border-oro/45 bg-oro/[0.05] p-4 text-center">
               <IconMas size={32} className="text-oro" />

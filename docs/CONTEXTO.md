@@ -1,10 +1,38 @@
 # PaginaQR / Junior Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: **9 noviembre 2026 (noche, cierre)** — Base real conectada y probada, **Mercado Pago de prueba funcionando** (pago aprobado → entradas), `junior-eventos` movido a la organización `paginaqr-eventos`, **sin mail: las entradas se entregan en pantalla + PDF**, "Mis entradas" por dispositivo, aviso de mail mal escrito y contador de reserva. Rama `rediseno-recepciones` (sin push, sin deploy). **Objetivo antes de lanzar:** que cualquiera compre → pago aprobado → entradas y PDF disponibles, sin errores.
-> **Calendario:** 9 nov = día de pruebas ✅. **10 nov = lanzamiento** (solo con OK del usuario): el usuario pidió armar el plan de lanzamiento.
-> **Para retomar en un chat nuevo:** "leé `docs/CONTEXTO.md` y seguimos con lo pendiente" → ir a **Pendiente para retomar** (checklist "Antes de lanzar").
-> **Dónde quedamos (cierre 9 nov noche):** todo commiteado en `rediseno-recepciones`, nada pusheado ni desplegado. `npm test` 105/105, lint y tipos OK. `.env.local` con la `service_role` y `NEXT_PUBLIC_APP_URL=http://localhost:3100`; la web local usa la base real y el token de MP **de prueba** (ambiente Prueba). **Próximo paso: plan de lanzamiento (Vercel → deploy → prueba pública → producción).**
+> Última actualización: **10 noviembre 2026 (lanzamiento)** — Web publicada en **https://junioreventos.vercel.app** (Vercel gratis), panel con guía de puesta en marcha, etapas de venta y Pagos en lenguaje simple, anticipadas a **$10.000** en las 9 fiestas. Ver la sección de abajo.
+> **Para retomar en un chat nuevo:** "leé `docs/CONTEXTO.md` y seguimos con lo pendiente" → ir a **Sesión 10 nov (lanzamiento)** → "Qué falta".
+
+## Sesión 10 nov (lanzamiento) — panel para el jefe y publicación
+
+### Hecho
+- **Publicado:** PR `lovera2025/paginaQR#1` mergeado a `main`; Vercel despliega solo. Dirección **https://junioreventos.vercel.app** (también `junior-eventos.vercel.app` y la vieja `jreventos-entradas.vercel.app`). Variables de producción cargadas (Supabase `junior-eventos`, `AUTH_SECRET`, `APP_MODE=production`, `NEXT_PUBLIC_APP_URL`); se quitaron las de Resend. Detalle en `docs/VERCEL-DEPLOY.md`.
+- **Hosting (decisión del usuario, 10 nov):** Vercel gratis, sabiendo que el plan Hobby es para uso no comercial (riesgo: que pidan pasar a Pro, US$ 20/mes, o pausen). Netlify gratis se descartó: tope de 300 créditos/mes y pausa la web al gastarlos. Dominio `.com.ar` descartado por ahora (requiere clave fiscal en nic.ar); `junioreventos.com.ar`, `junior-eventos.com.ar` y `junioreventos.com` estaban libres.
+- **Etapas de venta** (Resumen): Anticipada / General / VIP con estado, precio y vendidas; botones Cambiar precio, Abrir venta ahora, Cerrar venta ahora, Volver a vender y poner fecha de apertura; casilla **Aplicar a las N fiestas** (solo viajan precio y apertura/cierre al tipo del mismo nombre y diseño). `components/admin/EtapasVenta.tsx`, `updateTipoEnOtrasFiestas` en `lib/db/index.ts`.
+- **Guía de puesta en marcha** (Resumen, botón Ayuda): WhatsApp → PIN → Mercado Pago → precios → **Abrir la venta** (saca de Próximamente a las fiestas publicadas; solo con cobros reales). `components/admin/GuiaInicio.tsx`, `/api/admin/guia`, `/api/admin/eventos/abrir-venta`.
+- **Pagos en lenguaje simple:** conectar Mercado Pago en 3 pasos (`components/admin/ConectarMercadoPago.tsx`). Ya no se elige "ambiente": lo detecta la clave (cuenta de prueba → modo prueba; si no, cobros reales) y una clave mal copiada no se guarda. Botón Pausar/Activar cobros. Talo y las pruebas quedaron en "Opciones avanzadas".
+- **Textos del panel** sin tecnicismos: PIN del organizador / PIN de puerta, estados de compra (Pagada, Sin pagar…), colores con selector, aviso fijo abajo que se ve aunque la página esté scrolleada.
+- **Mensaje de Próximamente editable** por fiesta (Fiesta → Venta de la fiesta), con botón para usarlo en todas. Migración `2026_11_mensaje_proximamente.sql` aplicada. En Próximamente la portada y la fiesta muestran el precio de los tipos que tienen "Mostrar el precio antes de abrir".
+- **Descargar compras para Excel** (Compras → una fiesta o todas): respaldo propio, porque Supabase gratis no guarda copias automáticas. `lib/exportar.ts`, `/api/admin/ordenes/export`.
+- **Sin cobros conectados la venta queda "en espera" sola** (pedido del usuario): las fiestas se publican abiertas, con la Anticipada a la vista y General/VIP en Próximamente como suspenso; mientras no haya un medio de pago real, en vez del formulario se ve "La compra online se habilita muy pronto" (más el mensaje editable de la fiesta) y la portada marca "MUY PRONTO". **Apenas el jefe conecta su Mercado Pago real, la compra se activa sola**, sin tocar nada más. `sinCobros` en `components/publico/CompraEntradas.tsx` y `FiestaCard.tsx`; el servidor igual rechaza el checkout sin medios.
+- **Datos en la base real:** las 9 fiestas **publicadas** y abiertas; Anticipada $10.000 a la venta (hasta 7 días antes), General $18.000 abre sola cuando cierra la anticipada, VIP $35.000 con fecha a confirmar (precios de General y VIP ocultos); mensaje "Muy pronto habilitamos la compra online. Las anticipadas salen $10.000." en las 9; **Mercado Pago de prueba pausado** (la clave de prueba sigue guardada: Pagos → Activar cobros la vuelve a prender y muestra MODO PRUEBA); compras de prueba de Pinaroli borradas.
+- **Recorrido local** (base real, 375 px y 1280 px): compra → Mercado Pago de prueba $10.000 aprobado → entradas → PDF → Mis entradas → puerta (válida / ya usada / otra fiesta) → etapas y Próximamente. `npm test` 114/114, lint y build OK.
+
+### Aprendido
+- **Pago de prueba de Mercado Pago:** el mail que pide el checkout tiene que terminar en **`@testuser.com`**. Con otro (ej. `@example.com`) MP responde "No pudimos procesar tu pago" y ni siquiera crea el pago. Tarjeta Visa `4509 9535 6623 3704`, `123`, `11/30`, titular `APRO`, DNI `12345678`, sin iniciar sesión en MP.
+- **Dos servidores de prueba en la misma carpeta se pisan** (comparten `.next`: se rompen las fuentes y dan 404). Para un segundo servidor usar `NEXT_DIST_DIR=.next-preview` (configuración `dev-aislado` en `.claude/launch.json`, puerto 3105). Next toca `tsconfig.json` al arrancar: no commitear ese cambio.
+- `vercel link` agrega `VERCEL_OIDC_TOKEN` a `.env.local` y líneas a `.gitignore`: se revirtieron.
+- La CLI de Vercel quedó con sesión iniciada en esta PC (`npx vercel ...`); el conector de Vercel de Claude sigue sin acceso al equipo.
+
+### Qué falta (en este orden)
+1. **Elegir los PIN** (usuario): hasta que se elijan, nadie puede entrar al panel publicado (en producción el `1234` no entra). Se hace una sola vez desde la compu: levantar la web local → `/staff` con `1234` → Seguridad → Cambiar los PIN. Quedan guardados en la base y valen para la web publicada.
+2. **WhatsApp de contacto** (jefe): Panel → Marca. Sin él no aparecen los botones de ayuda, anulación ni "Avisame cuando abra".
+3. **Conectar Mercado Pago real** (jefe): Panel → Pagos, 3 pasos. La compra se activa sola. Después, una compra real de una anticipada para confirmar que la plata entra, y anularla desde Compras.
+4. **Probar en la dirección pública** lo que no se pudo probar en la compu: que Mercado Pago vuelve solo a la página, que en Actividad aparece "Mercado Pago … aprobado" (aviso automático) y la **cámara del scanner en un celular**. Se cubre con la compra real del paso 3.
+5. **Plan de Vercel:** si piden pasar a pago o pausan el proyecto, subir a Pro el mismo proyecto (ver `docs/VERCEL-DEPLOY.md`).
+6. Datos reales que el jefe quiera ajustar: hora, aforo (400), cupo de anticipadas (150), cierre de anticipadas, precios de General y VIP, política de anulación.
+
 
 ## Sesión 9 nov (noche) — base real, sin mail, Mis entradas
 
