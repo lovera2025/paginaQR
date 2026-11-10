@@ -603,6 +603,7 @@ export function crearNuevoEvento(input: NuevoEventoInput): { evento: Evento } | 
     textoFooter: copiar ? anterior.textoFooter : b.textoFooter,
     organizadorNombre: copiar ? anterior.organizadorNombre : b.nombre,
     mensajePostergado: "",
+    mensajeProximamente: "",
     proximamente: false,
     ventaAbre: null,
   };

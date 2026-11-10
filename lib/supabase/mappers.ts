@@ -54,6 +54,7 @@ export function mapEvento(row: EventoRow): Evento {
     textoFooter: row.texto_footer ?? "",
     organizadorNombre: row.organizador_nombre ?? "",
     mensajePostergado: row.mensaje_postergado ?? "",
+    mensajeProximamente: row.mensaje_proximamente ?? "",
     proximamente: row.proximamente === true,
     ventaAbre: row.venta_abre ?? null,
   };
@@ -84,6 +85,7 @@ export function mapEventoToRow(evento: Partial<Evento>): Partial<EventoRow> {
   if (evento.textoFooter !== undefined) row.texto_footer = evento.textoFooter;
   if (evento.organizadorNombre !== undefined) row.organizador_nombre = evento.organizadorNombre;
   if (evento.mensajePostergado !== undefined) row.mensaje_postergado = evento.mensajePostergado;
+  if (evento.mensajeProximamente !== undefined) row.mensaje_proximamente = evento.mensajeProximamente;
   if (evento.proximamente !== undefined) row.proximamente = evento.proximamente;
   if (evento.ventaAbre !== undefined) row.venta_abre = evento.ventaAbre;
   return row;

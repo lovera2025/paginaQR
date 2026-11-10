@@ -82,6 +82,7 @@ export function buildSeed(): { eventos: Evento[]; tipos: TipoEntrada[] } {
       textoFooter: SEED_BRANDING.textoFooter,
       organizadorNombre: SEED_BRANDING.nombre,
       mensajePostergado: "",
+      mensajeProximamente: "",
       proximamente: false,
       ventaAbre: null,
     });

@@ -27,6 +27,7 @@ export function evento(over: Partial<Evento> = {}): Evento {
     textoFooter: "",
     organizadorNombre: "Junior Eventos",
     mensajePostergado: "",
+    mensajeProximamente: "",
     proximamente: false,
     ventaAbre: null,
     ...over,

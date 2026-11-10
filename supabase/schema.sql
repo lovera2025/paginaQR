@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS eventos (
   texto_footer TEXT DEFAULT '',
   organizador_nombre TEXT DEFAULT '',
   mensaje_postergado TEXT DEFAULT '',
+  mensaje_proximamente TEXT DEFAULT '',
   proximamente BOOLEAN NOT NULL DEFAULT false,
   venta_abre TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now()

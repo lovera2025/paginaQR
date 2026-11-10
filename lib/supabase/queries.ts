@@ -848,6 +848,7 @@ export async function crearNuevoEvento(
         lugar: "",
         mapsUrl: "",
         mensajePostergado: "",
+        mensajeProximamente: "",
         proximamente: false,
         ventaAbre: null,
         ...base,

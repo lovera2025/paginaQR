@@ -22,6 +22,7 @@ export interface EventoRow {
   texto_footer: string;
   organizador_nombre: string;
   mensaje_postergado: string;
+  mensaje_proximamente: string | null;
   proximamente: boolean | null;
   venta_abre: string | null;
   created_at: string;

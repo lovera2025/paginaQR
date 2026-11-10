@@ -512,6 +512,32 @@ export function AdminDashboard() {
     setSaving(false);
   }
 
+  /** Copia el mensaje de "Próximamente" de esta fiesta a todas las demás (no cambia nada más). */
+  async function copiarMensajeProximamente() {
+    if (!draft) return;
+    const mensaje = (draft.mensajeProximamente ?? "").trim();
+    if (!confirm(`¿Usar este mensaje de Próximamente en las ${eventos.length} fiestas?`)) return;
+    setSaving(true);
+    try {
+      let fallaron = 0;
+      for (const e of eventos) {
+        const res = await fetch(`/api/admin/evento?evento=${encodeURIComponent(e.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mensajeProximamente: mensaje }),
+        });
+        if (!res.ok) fallaron += 1;
+      }
+      showToast(
+        fallaron ? "error" : "success",
+        fallaron ? `No se pudo guardar en ${fallaron} fiestas. Probá de nuevo.` : `Mensaje guardado en las ${eventos.length} fiestas`
+      );
+      refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleResetVentas() {
     if (resetConfirm !== "REINICIAR") {
       showToast("error", "Escribí REINICIAR para confirmar");
@@ -1579,6 +1605,35 @@ export function AdminDashboard() {
                 {draft.proximamente && draft.ventaAbre ? " Abre sola cuando llega la fecha." : ""}
                 {" "}Tocá &quot;Guardar cambios&quot; para aplicarlo.
               </p>
+              {draft.proximamente && (
+                <div className="mt-4">
+                  <label htmlFor="fiesta-msg-prox" className="mb-1 block text-sm text-white/60">
+                    Mensaje que ve la gente mientras está en Próximamente
+                  </label>
+                  <textarea
+                    id="fiesta-msg-prox"
+                    rows={2}
+                    maxLength={300}
+                    value={draft.mensajeProximamente ?? ""}
+                    onChange={(e) => setDraft({ ...draft, mensajeProximamente: e.target.value })}
+                    placeholder="Las entradas salen muy pronto. Volvé a entrar en unos días para comprar la tuya."
+                    className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                  />
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-white/40">Vacío = el texto de ejemplo.</p>
+                    {eventos.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={copiarMensajeProximamente}
+                        disabled={saving}
+                        className="text-xs font-semibold text-oro underline disabled:opacity-50"
+                      >
+                        Usar este mensaje en las {eventos.length} fiestas
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <Field label="Lugar" value={draft.lugar} onChange={(v) => setDraft({ ...draft, lugar: v })} />
             <Field label="Link de Google Maps (para el botón Cómo llegar)" value={draft.mapsUrl} onChange={(v) => setDraft({ ...draft, mapsUrl: v })} />

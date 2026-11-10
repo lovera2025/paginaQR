@@ -23,6 +23,9 @@ export async function PUT(request: Request) {
   if (body.capacidad !== undefined && !(Number(body.capacidad) >= 1)) {
     return errorJson("La capacidad debe ser al menos 1");
   }
+  if (body.mensajeProximamente !== undefined) {
+    body.mensajeProximamente = String(body.mensajeProximamente ?? "").trim().slice(0, 300);
+  }
   const venta = normalizarVentaFiesta(body);
   if ("error" in venta) return errorJson(venta.error);
   delete body.proximamente;

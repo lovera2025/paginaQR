@@ -180,7 +180,9 @@ export default async function FiestaPage({ params }: { params: { slug: string } 
                   </span>
                 ) : (
                   <span>
-                    Venta: <strong className="text-oro-claro">fecha a confirmar</strong>. Seguinos para enterarte primero.
+                    Venta: <strong className="text-oro-claro">fecha a confirmar</strong>.
+                    {/* Con mensaje propio del organizador, el detalle va en la tarjeta de abajo. */}
+                    {evento.mensajeProximamente?.trim() ? "" : " Seguinos para enterarte primero."}
                   </span>
                 )}
               </div>

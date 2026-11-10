@@ -40,6 +40,8 @@ export interface Evento {
   textoFooter: string;
   organizadorNombre: string;
   mensajePostergado: string;
+  /** Texto que ve el público mientras la fiesta está en próximamente (vacío = texto estándar). */
+  mensajeProximamente: string;
   /** La fiesta se muestra pero todavía no vende (sin precio ni selector). */
   proximamente: boolean;
   /** Cuándo abre la venta si está en próximamente (null = fecha a confirmar). */

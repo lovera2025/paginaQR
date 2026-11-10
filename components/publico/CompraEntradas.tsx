@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Evento, PaymentMethod, TipoEntradaDisponible } from "@/types";
+import { DEFAULT_MENSAJE_PROXIMAMENTE, getMensajeProximamente } from "@/lib/evento/messages";
 import { ddmm, formatPrecio, sugerirEmail, whatsappHref } from "@/lib/utils";
 import { CuentaTexto } from "./Countdown";
 import { IconCorona, IconWhatsapp } from "./iconos";
@@ -418,10 +419,9 @@ export function CompraEntradas({
       ) : hayProximos ? (
         <div className="tarjeta flex flex-col items-center gap-3 p-5 text-center">
           <p className="font-display text-lg font-extrabold">Todavía no abrió la venta</p>
-          <p className="text-sm text-white/60">
-            {waAvisame
-              ? "Las entradas salen muy pronto. Te avisamos por WhatsApp."
-              : "Las entradas salen muy pronto. Volvé a entrar en unos días para comprar la tuya."}
+          <p className="whitespace-pre-line text-sm text-white/60">
+            {getMensajeProximamente(evento) ??
+              (waAvisame ? "Las entradas salen muy pronto. Te avisamos por WhatsApp." : DEFAULT_MENSAJE_PROXIMAMENTE)}
           </p>
           {waAvisame && (
             <a
