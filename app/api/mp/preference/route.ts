@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getEventoActivo, getOrden } from "@/lib/db";
+import { getEventoById, getOrden } from "@/lib/db";
 import { createCheckoutPreference } from "@/lib/mercadopago/preferences";
 import { isPaymentMethodAvailable } from "@/lib/payments/methods";
+import { MENSAJE_RESERVA_VENCIDA, reservaVencida } from "@/lib/payments/reserva";
 
 export async function POST(request: Request) {
   if (!(await isPaymentMethodAvailable("mp"))) {
@@ -20,10 +21,13 @@ export async function POST(request: Request) {
   if (orden.estado !== "pendiente") {
     return NextResponse.json({ error: "La orden ya fue procesada" }, { status: 400 });
   }
+  if (reservaVencida(orden)) {
+    return NextResponse.json({ error: MENSAJE_RESERVA_VENCIDA, vencida: true }, { status: 410 });
+  }
 
-  const evento = await getEventoActivo();
+  const evento = await getEventoById(orden.eventoId);
   if (!evento) {
-    return NextResponse.json({ error: "No hay evento activo" }, { status: 400 });
+    return NextResponse.json({ error: "Fiesta no encontrada" }, { status: 400 });
   }
 
   const preference = await createCheckoutPreference(orden, evento);

@@ -54,7 +54,16 @@ console.log(`📡 URL: ${url}`);
 let ok = true;
 
 try {
-  const tables = ["eventos", "ordenes", "tickets", "activity_log"];
+  const tables = [
+    "eventos",
+    "tipos_entrada",
+    "ordenes",
+    "tickets",
+    "activity_log",
+    "app_branding",
+    "app_pins",
+    "app_payments",
+  ];
   for (const table of tables) {
     const result = await probeTable(url, serviceKey, table);
     if (!result.ok) {
@@ -65,24 +74,55 @@ try {
     }
   }
 
-  const eventoRes = await fetch(
-    `${url}/rest/v1/eventos?select=id,nombre,activo&activo=eq.true&limit=1`,
-    {
-      headers: {
-        apikey: serviceKey,
-        Authorization: `Bearer ${serviceKey}`,
-      },
-    }
-  );
-  const eventos = await eventoRes.json();
-  if (!eventoRes.ok) {
-    console.log(`❌ Evento activo: ${JSON.stringify(eventos)}`);
-    ok = false;
-  } else if (!Array.isArray(eventos) || eventos.length === 0) {
-    console.log("⚠️  No hay evento activo (corré el seed en schema.sql)");
+  // Columnas nuevas (migración 2026_11_modo_prueba_proximamente_anulaciones.sql)
+  const colRes = await fetch(`${url}/rest/v1/ordenes?select=modo_pago,monto_reembolsado&limit=0`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+  });
+  if (!colRes.ok) {
+    console.log("❌ Falta correr supabase/migrations/2026_11_modo_prueba_proximamente_anulaciones.sql");
     ok = false;
   } else {
-    console.log(`✅ Evento activo: "${eventos[0].nombre}" (${eventos[0].id})`);
+    console.log("✅ Migración de modo prueba / anulaciones aplicada");
+  }
+
+  // Columna nueva (migración 2026_11_reservas_y_problemas.sql)
+  const probRes = await fetch(`${url}/rest/v1/ordenes?select=problema&limit=0`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+  });
+  if (!probRes.ok) {
+    console.log("❌ Falta correr supabase/migrations/2026_11_reservas_y_problemas.sql");
+    ok = false;
+  } else {
+    console.log("✅ Migración de reservas / pagos sin cupo aplicada");
+  }
+
+  const eventoRes = await fetch(`${url}/rest/v1/eventos?select=slug,estado&order=fecha`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+  });
+  const eventos = await eventoRes.json();
+  if (!eventoRes.ok) {
+    console.log(`❌ Fiestas: ${JSON.stringify(eventos).slice(0, 160)}`);
+    ok = false;
+  } else if (!Array.isArray(eventos) || eventos.length === 0) {
+    console.log("⚠️  No hay fiestas cargadas (corré supabase/seeds/recepciones_2026.sql o creá una desde el admin)");
+  } else {
+    const porEstado = eventos.reduce((acc, e) => ({ ...acc, [e.estado]: (acc[e.estado] ?? 0) + 1 }), {});
+    console.log(`✅ ${eventos.length} fiestas (${Object.entries(porEstado).map(([k, v]) => `${v} ${k}`).join(", ")})`);
+  }
+
+  // La clave pública NO tiene que poder leer PINs ni credenciales de pago.
+  if (anonKey) {
+    for (const t of ["app_pins", "app_payments", "ordenes", "tickets"]) {
+      const r = await fetch(`${url}/rest/v1/${t}?select=*&limit=1`, {
+        headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+      });
+      const body = r.ok ? await r.json() : [];
+      if (Array.isArray(body) && body.length > 0) {
+        console.log(`❌ La clave pública puede leer "${t}". Activá RLS en esa tabla.`);
+        ok = false;
+      }
+    }
+    console.log("✅ La clave pública no lee PINs, pagos, compras ni entradas");
   }
 } catch (err) {
   console.log(`❌ No se pudo conectar: ${err.message}`);

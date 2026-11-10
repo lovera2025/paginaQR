@@ -1,4 +1,12 @@
-# Conectar Supabase — paginaqr-eventos
+# Conectar Supabase — junior-eventos
+
+> **Proyecto actual (9 nov 2026):** `junior-eventos` (ref `jllfdxxleszeimsxruva`, región São Paulo).
+> Ya tiene aplicado, en este orden: `supabase/schema.sql` → `supabase/storage.sql` →
+> `supabase/migrations/2026_11_modo_prueba_proximamente_anulaciones.sql` → `supabase/seeds/recepciones_2026.sql`.
+> Solo falta pegar la **service_role** en `.env.local` (Project Settings → API Keys) y correr `npm run verify:supabase`.
+>
+> **Si migrás un proyecto viejo** (el de junio): `multi_evento.sql` → `2026_11_modo_prueba_proximamente_anulaciones.sql`
+> → seed. La migración de noviembre también activa RLS en `app_pins` y `app_payments` (antes la clave pública podía leerlas).
 
 > Si **solo creaste el proyecto** en Supabase, seguí estos 3 pasos en orden.
 

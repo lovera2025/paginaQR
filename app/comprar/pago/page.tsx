@@ -1,10 +1,89 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { formatPrecio } from "@/lib/utils";
-import type { PaymentMethod } from "@/types";
+import { linkPagoVenceEl } from "@/lib/entradas/tipos";
+import { IconBanco, IconTarjeta, IconAtras, IconReloj } from "@/components/publico/iconos";
+import { BarraModoPrueba } from "@/components/publico/BarraModoPrueba";
+import { avisoModoPrueba } from "@/lib/payments/aviso";
+import type { Orden, PaymentMethod } from "@/types";
+
+type Resumen = Orden & {
+  evento: { nombre: string; slug: string; fecha: string; lugar: string; flyerUrl: string; colorSecundario: string } | null;
+};
+
+/** Segundos que faltan para que venza el tiempo de pago (null mientras no se sabe). */
+function useSegundosRestantes(venceEl: Date | null): number | null {
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => {
+    if (!venceEl) return;
+    const id = setInterval(() => setAhora(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [venceEl]);
+  if (!venceEl) return null;
+  return Math.max(0, Math.floor((venceEl.getTime() - ahora) / 1000));
+}
+
+function RelojReserva({ segundos }: { segundos: number }) {
+  const mm = String(Math.floor(segundos / 60)).padStart(2, "0");
+  const ss = String(segundos % 60).padStart(2, "0");
+  const poco = segundos <= 120;
+  return (
+    <p
+      role="timer"
+      aria-live={poco ? "polite" : "off"}
+      className={`mb-6 flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm ${
+        poco ? "border-amber-400/50 bg-amber-400/10 text-amber-200" : "border-white/10 bg-white/[0.04] text-white/75"
+      }`}
+    >
+      <IconReloj size={16} />
+      Te guardamos tus entradas:{" "}
+      <strong className="font-mono text-base tabular-nums text-white">
+        {mm}:{ss}
+      </strong>
+    </p>
+  );
+}
+
+function ReservaVencida({ volverHref }: { volverHref: string }) {
+  return (
+    <div className="mx-auto flex max-w-md flex-col items-center gap-4 text-center">
+      <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-amber-400/60 bg-amber-400/10 text-amber-300">
+        <IconReloj size={30} />
+      </span>
+      <h1 className="font-display text-2xl font-extrabold">Se terminó el tiempo para pagar</h1>
+      <p className="text-sm leading-relaxed text-white/70">
+        No se cobró nada y las entradas se liberaron. Si quedan, las podés elegir de nuevo.
+      </p>
+      <Link href={volverHref} className="btn-oro mt-2 h-12 px-6 text-sm">
+        Elegir de nuevo
+      </Link>
+    </div>
+  );
+}
+
+function ResumenCompra({ r }: { r: Resumen | null }) {
+  if (!r) return null;
+  return (
+    <div className="mb-6 flex items-center gap-3.5 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left">
+      {r.evento?.flyerUrl && (
+        <div className="relative h-[72px] w-[44px] shrink-0 overflow-hidden rounded-lg" style={{ backgroundColor: r.evento.colorSecundario }}>
+          <Image src={r.evento.flyerUrl} alt="" fill sizes="44px" className="object-cover" />
+        </div>
+      )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate font-display text-sm font-bold">{r.evento?.nombre ?? "Tu compra"}</span>
+        <span className="text-xs text-white/60">
+          {r.cantidad} × {r.tipoNombre}
+        </span>
+      </div>
+      <span className="font-display text-lg font-extrabold text-oro-claro">{formatPrecio(r.montoTotal)}</span>
+    </div>
+  );
+}
 
 interface PaymentInfo {
   paymentId: string;
@@ -15,7 +94,7 @@ interface PaymentInfo {
   montoTotal: number;
 }
 
-function PagoContent() {
+function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const ordenId = searchParams.get("orden");
@@ -28,6 +107,28 @@ function PagoContent() {
   const [copied, setCopied] = useState<"alias" | "cvu" | null>(null);
   const [waiting, setWaiting] = useState(false);
   const [redirectingMp, setRedirectingMp] = useState(false);
+  const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [sinMedios, setSinMedios] = useState(false);
+  const volverHref = resumen?.evento ? `/fiesta/${resumen.evento.slug}` : "/";
+  const venceEl = useMemo(() => (resumen?.createdAt ? linkPagoVenceEl(resumen) : null), [resumen]);
+  const segundos = useSegundosRestantes(venceEl);
+  const vencida = segundos === 0;
+
+  useEffect(() => {
+    if (!ordenId) return;
+    fetch(`/api/ordenes/${ordenId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        // Si ya está paga (ej. volvió con "atrás"), directo a las entradas en vez de ofrecer pagar otra vez.
+        if (d.estado === "aprobado" || d.problema) {
+          router.replace(`/compra/exito?orden=${ordenId}`);
+          return;
+        }
+        setResumen(d);
+      })
+      .catch(() => {});
+  }, [ordenId, router]);
 
   const startMercadoPago = useCallback(async () => {
     if (!ordenId) return;
@@ -91,8 +192,15 @@ function PagoContent() {
         const available = (data.methods ?? []) as PaymentMethod[];
         setSimulateMode(simulate);
         setMethods(available);
+        onAviso(avisoModoPrueba({ simulate, sandbox: Boolean(data.sandbox) }));
 
         if (simulate) {
+          setLoading(false);
+          return;
+        }
+
+        if (available.length === 0) {
+          setSinMedios(true);
           setLoading(false);
           return;
         }
@@ -114,7 +222,7 @@ function PagoContent() {
         setError("Error al cargar opciones de pago");
         setLoading(false);
       });
-  }, [ordenId, startMercadoPago, startTalo]);
+  }, [ordenId, startMercadoPago, startTalo, onAviso]);
 
   useEffect(() => {
     if (!payment || !ordenId || simulateMode) return;
@@ -208,22 +316,41 @@ function PagoContent() {
     return (
       <div className="text-center">
         <p className="text-red-400">Orden no encontrada</p>
-        <Link href="/comprar" className="mt-4 inline-block underline">
+        <Link href={volverHref} className="mt-4 inline-block underline">
           Volver
         </Link>
       </div>
     );
   }
 
+  // Pasó el tiempo para empezar a pagar: se avisa antes de que toque "Pagar" y le dé error.
+  // (Si ya generó la transferencia, la pantalla de Talo sigue esperando el pago.)
+  if (vencida && !payment && !redirectingMp) {
+    return <ReservaVencida volverHref={volverHref} />;
+  }
+
   if (loading || redirectingMp) {
     return (
       <div className="text-center">
-        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-oro" />
         <p className="text-white/70">
           {redirectingMp
             ? "Redirigiendo a Mercado Pago..."
             : "Preparando tu pago..."}
         </p>
+      </div>
+    );
+  }
+
+  if (sinMedios) {
+    return (
+      <div className="mx-auto max-w-md text-center">
+        <ResumenCompra r={resumen} />
+        <p className="font-display text-xl font-extrabold">Los pagos online no están disponibles ahora</p>
+        <p className="mt-2 text-sm text-white/60">No se cobró nada. Escribinos por WhatsApp y te ayudamos con tu entrada.</p>
+        <Link href={volverHref} className="mt-6 inline-block text-sm underline">
+          Volver a la fiesta
+        </Link>
       </div>
     );
   }
@@ -238,7 +365,9 @@ function PagoContent() {
           </p>
         </div>
 
-        <h1 className="mb-2 text-2xl font-bold">Confirmar pago</h1>
+        <ResumenCompra r={resumen} />
+        {segundos !== null && <RelojReserva segundos={segundos} />}
+        <h1 className="mb-2 font-display text-2xl font-extrabold">Confirmar pago</h1>
         <p className="mb-8 text-white/60">Elegí el resultado para probar el flujo</p>
 
         {error && (
@@ -251,20 +380,20 @@ function PagoContent() {
           <button
             onClick={() => simular(true)}
             disabled={loading}
-            className="w-full rounded-xl bg-green-500 py-4 font-bold text-white transition hover:bg-green-600 disabled:opacity-50"
+            className="w-full rounded-full bg-green-500 py-4 font-display font-extrabold text-white transition hover:bg-green-600 disabled:opacity-50"
           >
-            ✅ Simular pago exitoso
+            Simular pago aprobado
           </button>
           <button
             onClick={() => simular(false)}
             disabled={loading}
-            className="w-full rounded-xl border border-red-500/50 py-4 font-bold text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
+            className="w-full rounded-full border border-red-500/50 py-4 font-display font-extrabold text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
           >
-            ❌ Simular pago fallido
+            Simular pago rechazado
           </button>
         </div>
 
-        <Link href="/comprar" className="mt-8 inline-block text-sm text-white/40 hover:text-white">
+        <Link href={volverHref} className="mt-8 inline-block text-sm text-white/40 hover:text-white">
           ← Volver
         </Link>
       </div>
@@ -274,9 +403,11 @@ function PagoContent() {
   if (!selectedMethod && methods.length > 1) {
     return (
       <div className="mx-auto max-w-lg">
-        <h1 className="mb-2 text-center text-2xl font-bold">¿Cómo querés pagar?</h1>
-        <p className="mb-8 text-center text-white/60">
-          Elegí el método que prefieras. Al confirmar el pago verás tu QR en pantalla.
+        <ResumenCompra r={resumen} />
+        {segundos !== null && <RelojReserva segundos={segundos} />}
+        <h1 className="mb-2 text-center font-display text-2xl font-extrabold">¿Cómo querés pagar?</h1>
+        <p className="mb-8 text-center text-sm text-white/60">
+          Apenas se confirme el pago, tus entradas con QR aparecen en pantalla para descargar.
         </p>
 
         {error && (
@@ -290,10 +421,10 @@ function PagoContent() {
             <button
               type="button"
               onClick={() => handleChooseMethod("mp")}
-              className="rounded-2xl border border-white/10 bg-white/5 p-6 text-left transition hover:border-white/30 hover:bg-white/10"
+              className="rounded-2xl border border-white/10 bg-white/5 p-6 text-left transition hover:border-[#009ee3]/70 hover:bg-[#009ee3]/10"
             >
-              <p className="text-2xl">💳</p>
-              <p className="mt-3 text-lg font-bold">Tarjeta</p>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#009ee3] text-white"><IconTarjeta size={22} /></span>
+              <p className="mt-3 font-display text-lg font-extrabold">Tarjeta o saldo</p>
               <p className="mt-1 text-sm text-white/60">Mercado Pago</p>
               <p className="mt-2 text-xs text-white/40">Débito, crédito o saldo MP</p>
             </button>
@@ -303,18 +434,18 @@ function PagoContent() {
             <button
               type="button"
               onClick={() => handleChooseMethod("talo")}
-              className="rounded-2xl border border-white/10 bg-white/5 p-6 text-left transition hover:border-white/30 hover:bg-white/10"
+              className="rounded-2xl border border-white/10 bg-white/5 p-6 text-left transition hover:border-oro/60 hover:bg-oro/10"
             >
-              <p className="text-2xl">🏦</p>
-              <p className="mt-3 text-lg font-bold">Transferencia</p>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-oro text-tinta"><IconBanco size={22} /></span>
+              <p className="mt-3 font-display text-lg font-extrabold">Transferencia</p>
               <p className="mt-1 text-sm text-white/60">Talo Pay</p>
               <p className="mt-2 text-xs text-white/40">Desde tu banco o billetera</p>
             </button>
           )}
         </div>
 
-        <Link href="/comprar" className="mt-8 block text-center text-sm text-white/40 hover:text-white">
-          ← Volver
+        <Link href={volverHref} className="mt-8 flex items-center justify-center gap-1 text-sm text-white/45 hover:text-white">
+          <IconAtras size={16} /> Volver a la fiesta
         </Link>
       </div>
     );
@@ -337,7 +468,7 @@ function PagoContent() {
             Elegir otro método de pago
           </button>
         )}
-        <Link href="/comprar" className="inline-block underline">
+        <Link href={volverHref} className="inline-block underline">
           Volver a comprar
         </Link>
       </div>
@@ -346,15 +477,15 @@ function PagoContent() {
 
   return (
     <div className="mx-auto max-w-lg">
-      <h1 className="mb-2 text-center text-2xl font-bold">Transferí para confirmar</h1>
-      <p className="mb-8 text-center text-white/60">
-        Enviá el monto exacto desde tu banco o billetera. Cuando Talo detecte el pago,
-        verás tu QR en pantalla.
+      <ResumenCompra r={resumen} />
+      <h1 className="mb-2 text-center font-display text-2xl font-extrabold">Transferí para confirmar</h1>
+      <p className="mb-8 text-center text-sm text-white/60">
+        Enviá el monto exacto desde tu banco o billetera. Cuando se acredite, tus entradas aparecen solas.
       </p>
 
-      <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-6">
-        <p className="mb-1 text-sm text-white/50">Monto a transferir</p>
-        <p className="text-3xl font-black">{formatPrecio(payment.amount)}</p>
+      <div className="mb-6 rounded-2xl border border-oro/35 bg-oro/[0.08] p-6">
+        <p className="mb-1 text-sm text-white/55">Monto a transferir</p>
+        <p className="font-display text-4xl font-black text-oro-claro">{formatPrecio(payment.amount)}</p>
       </div>
 
       {payment.alias && (
@@ -365,7 +496,7 @@ function PagoContent() {
             <button
               type="button"
               onClick={() => copyText(payment.alias, "alias")}
-              className="shrink-0 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-black"
+              className="shrink-0 rounded-full bg-oro px-4 py-2 text-sm font-bold text-tinta"
             >
               {copied === "alias" ? "Copiado" : "Copiar"}
             </button>
@@ -381,7 +512,7 @@ function PagoContent() {
             <button
               type="button"
               onClick={() => copyText(payment.cvu, "cvu")}
-              className="shrink-0 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-black"
+              className="shrink-0 rounded-full bg-oro px-4 py-2 text-sm font-bold text-tinta"
             >
               {copied === "cvu" ? "Copiado" : "Copiar"}
             </button>
@@ -389,11 +520,11 @@ function PagoContent() {
         </div>
       )}
 
-      <div className="mb-6 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-100">
-        <p className="font-semibold">Importante</p>
-        <ul className="mt-2 list-inside list-disc space-y-1 text-blue-100/90">
+      <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/85">
+        <p className="font-semibold text-oro-claro">Importante</p>
+        <ul className="mt-2 list-inside list-disc space-y-1 text-white/75">
           <li>Transferí el monto exacto: {formatPrecio(payment.amount)}</li>
-          <li>Al confirmarse, tu QR aparecerá en pantalla</li>
+          <li>Al acreditarse, tus entradas con QR aparecen en pantalla</li>
           <li>Compra registrada a nombre de <strong>{payment.compradorEmail}</strong></li>
           <li>No cierres esta pantalla hasta que confirmemos el pago</li>
         </ul>
@@ -401,7 +532,7 @@ function PagoContent() {
 
       {waiting && (
         <div className="flex items-center justify-center gap-3 rounded-xl border border-white/10 px-4 py-3 text-sm text-white/70">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/15 border-t-oro" />
           Esperando confirmación de la transferencia...
         </div>
       )}
@@ -420,7 +551,7 @@ function PagoContent() {
         </button>
       )}
 
-      <Link href="/comprar" className="mt-4 block text-center text-sm text-white/40 hover:text-white">
+      <Link href={volverHref} className="mt-4 block text-center text-sm text-white/40 hover:text-white">
         Volver a comprar
       </Link>
     </div>
@@ -428,15 +559,21 @@ function PagoContent() {
 }
 
 export default function PagoPage() {
+  const [aviso, setAviso] = useState<string | null>(null);
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#050508] px-6 py-10">
-      <Suspense
-        fallback={
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-        }
-      >
-        <PagoContent />
-      </Suspense>
+    <div className="min-h-screen bg-noche">
+      <BarraModoPrueba texto={aviso} />
+      <div className="flex min-h-[calc(100vh-28px)] items-center justify-center px-5 py-10">
+        <Suspense
+          fallback={
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-oro" />
+          }
+        >
+          <div className="w-full min-w-0">
+            <PagoContent onAviso={setAviso} />
+          </div>
+        </Suspense>
+      </div>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { generateQrBuffer } from "@/lib/qr/generate";
 import { getAppUrl } from "@/lib/config";
 import type { Evento, Ticket } from "@/types";
@@ -51,6 +53,17 @@ async function attachImageFromUrl(
   };
 }
 
+/** Logo de la marca: desde /public si está en el disco; si no (serverless), por URL pública. */
+async function logoAttachment(appUrl: string): Promise<ResendInlineAttachment | null> {
+  const rel = "/marca/logo-claro.png";
+  try {
+    const buf = await readFile(path.join(process.cwd(), "public", rel));
+    return { content: buf.toString("base64"), filename: "junior-eventos.png", contentType: "image/png", contentId: "logo" };
+  } catch {
+    return attachImageFromUrl(absoluteAssetUrl(rel, appUrl), "logo", "junior-eventos.png");
+  }
+}
+
 export async function buildEmailInlineAssets(
   evento: Evento,
   tickets: Ticket[]
@@ -62,8 +75,9 @@ export async function buildEmailInlineAssets(
 }> {
   const appUrl = getAppUrl();
   const attachments: ResendInlineAttachment[] = [];
+  const logo = await logoAttachment(appUrl);
+  if (logo) attachments.push(logo);
   const flyerUrl = absoluteAssetUrl(evento.flyerUrl, appUrl);
-  const logoUrl = absoluteAssetUrl(evento.logoUrl, appUrl);
 
   let flyerCid: string | null = null;
   if (flyerUrl) {
@@ -71,14 +85,6 @@ export async function buildEmailInlineAssets(
     const flyer = await attachImageFromUrl(flyerUrl, flyerCid, "flyer.jpg");
     if (flyer) attachments.push(flyer);
     else flyerCid = null;
-  }
-
-  let logoCid: string | null = null;
-  if (logoUrl && logoUrl !== flyerUrl) {
-    logoCid = "logo";
-    const logo = await attachImageFromUrl(logoUrl, logoCid, "logo.jpg");
-    if (logo) attachments.push(logo);
-    else logoCid = null;
   }
 
   const qrCids: string[] = [];
@@ -94,5 +100,5 @@ export async function buildEmailInlineAssets(
     });
   }
 
-  return { attachments, flyerCid, logoCid, qrCids };
+  return { attachments, flyerCid, logoCid: logo ? "logo" : null, qrCids };
 }

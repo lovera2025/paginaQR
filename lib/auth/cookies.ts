@@ -1,31 +1,18 @@
 import { cookies } from "next/headers";
 import { getAppPins } from "@/lib/auth/pins";
+import { firmarSesion, leerSesion, SESSION_MS, type AuthRole, type AuthSession } from "@/lib/auth/session";
 
-export type AuthRole = "admin" | "scanner";
+export type { AuthRole, AuthSession } from "@/lib/auth/session";
 
 const COOKIE_NAME = "pq_auth";
 
-export interface AuthSession {
-  role: AuthRole;
-  pinRevision: number;
-}
-
-function parseCookie(value: string | undefined): AuthSession | null {
-  if (!value) return null;
-  const [role, revStr] = value.split(":");
-  if (role !== "admin" && role !== "scanner") return null;
-  const pinRevision = Number(revStr);
-  if (!Number.isFinite(pinRevision)) return null;
-  return { role, pinRevision };
-}
-
 export function setAuthCookie(role: AuthRole, pinRevision: number) {
-  cookies().set(COOKIE_NAME, `${role}:${pinRevision}`, {
+  cookies().set(COOKIE_NAME, firmarSesion(role, pinRevision), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 12,
+    maxAge: SESSION_MS / 1000,
   });
 }
 
@@ -33,13 +20,9 @@ export function clearAuthCookie() {
   cookies().delete(COOKIE_NAME);
 }
 
+/** Sesión firmada y vigente (null si no hay, si fue alterada o si venció). */
 export function getAuthSession(): AuthSession | null {
-  return parseCookie(cookies().get(COOKIE_NAME)?.value);
-}
-
-/** @deprecated use getAuthSession */
-export function getAuthRole(): AuthRole | null {
-  return getAuthSession()?.role ?? null;
+  return leerSesion(cookies().get(COOKIE_NAME)?.value);
 }
 
 export async function isSessionValid(): Promise<boolean> {
@@ -56,14 +39,6 @@ export async function requireAuth(role: AuthRole): Promise<boolean> {
   const pins = await getAppPins();
   if (session.pinRevision !== pins.pinRevision) return false;
 
-  if (role === "admin") return session.role === "admin";
-  return session.role === "scanner" || session.role === "admin";
-}
-
-/** @deprecated use requireAuth */
-export function requireRole(role: AuthRole): boolean {
-  const session = getAuthSession();
-  if (!session) return false;
   if (role === "admin") return session.role === "admin";
   return session.role === "scanner" || session.role === "admin";
 }

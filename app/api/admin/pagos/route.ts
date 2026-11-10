@@ -8,17 +8,17 @@ import {
   type TaloEnvironment,
 } from "@/lib/talo/credentials";
 import { getTaloWebhookUrl } from "@/lib/talo/client";
-import { getEnabledPaymentMethods } from "@/lib/payments/methods";
+import { getModoPagos } from "@/lib/payments/modo";
 
 export async function GET() {
   if (!(await requireAuth("admin"))) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const [talo, mp, methods] = await Promise.all([
+  const [talo, mp, modo] = await Promise.all([
     getTaloCredentialsForAdmin(),
     getMpCredentialsForAdmin(),
-    getEnabledPaymentMethods(),
+    getModoPagos(),
   ]);
 
   return NextResponse.json({
@@ -30,7 +30,8 @@ export async function GET() {
       ...mp,
       webhookUrl: getMpWebhookUrl(),
     },
-    methods,
+    methods: modo.methods,
+    modo: { simulate: modo.simulate, sandbox: modo.sandbox, sinMedios: modo.sinMedios, appMode: modo.appMode },
     appUrl: getAppUrl(),
   });
 }
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
 
   if (provider === "mp") {
     const environment =
-      body.environment === "sandbox" ? "sandbox" : "production";
+      body.environment === "auto" ? "auto" : body.environment === "sandbox" ? "sandbox" : "production";
 
     const result = await saveMpCredentials({
       accessToken: body.accessToken ? String(body.accessToken) : undefined,
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, environment: result.environment });
   }
 
   const environment: TaloEnvironment =

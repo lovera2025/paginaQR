@@ -1,36 +1,27 @@
 import { NextResponse } from "next/server";
-import {
-  abrirVentaEvento,
-  cerrarEventoActivo,
-  pausarVentasEvento,
-  reanudarVentasEvento,
-} from "@/lib/db";
-import { requireAuth } from "@/lib/auth/cookies";
+import { abrirVenta, cerrarEvento, pausarVentas, reanudarVentas } from "@/lib/db";
+import { adminConEvento, errorJson } from "@/lib/api/admin";
 
 const ACCIONES = ["abrir_venta", "pausar", "reanudar", "cerrar"] as const;
 
 export async function POST(request: Request) {
-  if (!(await requireAuth("admin"))) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
+  const body = await request.json();
+  const ctx = await adminConEvento(request, body.eventoId);
+  if ("response" in ctx) return ctx.response;
 
-  const { accion } = await request.json();
-  if (!ACCIONES.includes(accion)) {
-    return NextResponse.json({ error: "Acción inválida" }, { status: 400 });
-  }
+  const { accion } = body;
+  if (!ACCIONES.includes(accion)) return errorJson("Acción inválida");
 
+  const id = ctx.evento.id;
   const result =
     accion === "abrir_venta"
-      ? await abrirVentaEvento()
+      ? await abrirVenta(id)
       : accion === "pausar"
-        ? await pausarVentasEvento()
+        ? await pausarVentas(id)
         : accion === "reanudar"
-          ? await reanudarVentasEvento()
-          : await cerrarEventoActivo();
+          ? await reanudarVentas(id)
+          : await cerrarEvento(id);
 
-  if ("error" in result) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
-  }
-
+  if ("error" in result) return errorJson(result.error);
   return NextResponse.json({ evento: result.evento });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { approveOrden } from "@/lib/db";
+import { approveOrden, getOrden } from "@/lib/db";
+import { registrarPagoSinCupo } from "@/lib/payments/problemas";
 import { canSimulatePayment } from "@/lib/talo/credentials";
 
 export async function POST(request: Request) {
@@ -14,6 +15,12 @@ export async function POST(request: Request) {
 
   const result = await approveOrden(ordenId);
   if ("error" in result) {
+    // Igual que con un pago real: si se agotaron mientras pagaba, la compra queda para devolver.
+    const orden = result.sinCupo ? await getOrden(ordenId) : null;
+    if (orden) {
+      await registrarPagoSinCupo(orden, `Pago simulado · compra ${ordenId.slice(0, 8)}`, result.error);
+      return NextResponse.json({ orden: await getOrden(ordenId), sinCupo: true });
+    }
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 

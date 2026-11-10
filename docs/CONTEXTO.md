@@ -1,9 +1,172 @@
-# PaginaQR / JR Eventos — Contexto del proyecto
+# PaginaQR / Junior Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: **15 junio 2026 (noche)** — Botón Reembolsar deshabilitado visualmente (opaco + aviso amarillo en Pagos). Migración SQL `app_payments_mp.sql` pendiente de correr en Supabase. Próximo: PINs fuertes + precio $8.000 + demo jefe.
+> Última actualización: **9 noviembre 2026 (noche, cierre)** — Base real conectada y probada, **Mercado Pago de prueba funcionando** (pago aprobado → entradas), `junior-eventos` movido a la organización `paginaqr-eventos`, **sin mail: las entradas se entregan en pantalla + PDF**, "Mis entradas" por dispositivo, aviso de mail mal escrito y contador de reserva. Rama `rediseno-recepciones` (sin push, sin deploy). **Objetivo antes de lanzar:** que cualquiera compre → pago aprobado → entradas y PDF disponibles, sin errores.
+> **Calendario:** 9 nov = día de pruebas ✅. **10 nov = lanzamiento** (solo con OK del usuario): el usuario pidió armar el plan de lanzamiento.
+> **Para retomar en un chat nuevo:** "leé `docs/CONTEXTO.md` y seguimos con lo pendiente" → ir a **Pendiente para retomar** (checklist "Antes de lanzar").
+> **Dónde quedamos (cierre 9 nov noche):** todo commiteado en `rediseno-recepciones`, nada pusheado ni desplegado. `npm test` 105/105, lint y tipos OK. `.env.local` con la `service_role` y `NEXT_PUBLIC_APP_URL=http://localhost:3100`; la web local usa la base real y el token de MP **de prueba** (ambiente Prueba). **Próximo paso: plan de lanzamiento (Vercel → deploy → prueba pública → producción).**
 
-## Meta inmediata
+## Sesión 9 nov (noche) — base real, sin mail, Mis entradas
+
+### Hecho
+- **Base real conectada:** la `service_role` está en `.env.local`. El archivo había quedado guardado en UTF-16 (Bloc de notas) y Next no lo leía: se volvió a guardar en UTF-8. Si se edita a mano, guardarlo en **UTF-8**.
+- **Supabase:** `junior-eventos` (ref `jllfdxxleszeimsxruva`) se **movió a la organización `paginaqr-eventos`**, junto al proyecto viejo (pausado, sin tocar). URL y claves no cambiaron. El conector de Supabase de Claude ya lo ve. Migración `reservas_y_problemas` aplicada; `npm run verify:supabase` todo ✅.
+- **Probado contra la base real** (fiesta Pinaroli, en borrador): compra → reserva descuenta → pago simulado → 2 entradas → PDF → scanner (1ª válida, 2ª "usada") → anular 1 (vuelve el cupo) → estadísticas/compras/actividad; pago sin cupo → aviso → "Ya le devolví la plata" → devuelta. Quedan compras de prueba en Pinaroli: se borran con **Reiniciar ventas** antes de publicar.
+- **Sin mail (decisión del usuario):** las entradas se entregan en pantalla + PDF, y el contacto con el organizador es por WhatsApp. Se apagó el envío en `approveOrden` (`lib/db/index.ts`; el código de mail queda en `lib/email/` por si algún día hay dominio) y se sacaron todos los textos que prometían mail. El mail del comprador queda solo como dato de contacto. **Ya no hace falta Resend ni dominio para lanzar.**
+- **Mis entradas** (`/mis-entradas`): cada dispositivo (celular o compu) guarda sus compras aprobadas (`lib/entradas/guardadas.ts`, localStorage). La portada muestra "Tenés N compras en este dispositivo"; link en el pie. Desde otro dispositivo: WhatsApp → el organizador baja el PDF en Admin → Compras.
+- **Aviso de mail mal escrito:** "¿Quisiste decir …@gmail.com?" al salir del campo y antes de seguir al pago (`sugerirEmail` en `lib/utils.ts`).
+- **Contador de reserva** en la pantalla de pago ("Te guardamos tus entradas 09:58"); al llegar a cero, "Se terminó el tiempo" + "Elegir de nuevo".
+- **Fallas arregladas:** el scanner tiraba un error (y podía romper la página) al cambiar de fiesta o salir si la cámara no había arrancado (compu sin cámara, permiso negado); las lecturas de Supabase reintentan ante cortes de red momentáneos (el resumen del panel fallaba entero).
+- Probado en el navegador a 375 px y a 1280 px: portada, fiesta, compra, pago, éxito, Mis entradas.
+- **Mercado Pago de prueba funcionando** (ver "Cómo probar Mercado Pago" en Pendientes). Arreglos que salieron de la prueba: en localhost no se manda vuelta automática ni aviso (MP los rechaza); con token de prueba no se manda el mail del comprador (si es de una cuenta real, MP rechaza el pago); la compra de prueba quedaba marcada "producción" (MP devuelve `live_mode` = true con cuentas de prueba: ahora decide el ambiente de Admin → Pagos); el "→ aprobado" se anotaba dos veces en Actividad.
+- **Red:** la conexión de la PC con Supabase a veces tarda ~10 s en abrirse (`UND_ERR_CONNECT_TIMEOUT`). El cliente de Supabase (`lib/supabase/server.ts`) ahora reintenta lecturas y escrituras que no llegaron a salir; las escrituras que pudieron llegar no se repiten (no duplica compras). `NEXT_PUBLIC_APP_URL` local corregido a `:3100` (decía `:3000`).
+
+### Ojo antes de lanzar
+- **El WhatsApp de contacto está vacío en la base real** (Admin → Apariencia / cada fiesta). Sin eso no aparecen los botones de anular, "pago sin cupo", "no encuentro mi entrada" ni el de la portada. Es parte del paso 7 (datos del jefe).
+
+## Sesión 9 nov (tarde) — riesgos de plata, visual y segunda pasada
+
+### Hecho
+- **Reservas de 15 minutos:** una compra sin pagar guarda sus entradas 15 min (cuentan contra cupo y aforo en la web y en el checkout). Constantes en `lib/entradas/tipos.ts` (`RESERVA_MINUTOS`, `LINK_PAGO_MINUTOS`). La fiesta muestra "Agotado" mientras las últimas están reservadas.
+- **Link de Mercado Pago que vence** a los 10 min de la compra, en modo binario (aprobado o rechazado al instante) y sin efectivo (Rapipago/PagoFácil). Pasados 10 min, "Pagar" dice que la reserva venció. `lib/mercadopago/preferences.ts`.
+- **Pago sin cupo:** si igual entra un pago y ya no quedan entradas (ej. transferencia tardía), no se emiten: la compra queda `problema = pago_sin_cupo`, el comprador ve "Se agotaron mientras pagabas, te devolvemos la plata" con su código, y Admin → Compras muestra un aviso rojo + chip "PAGO SIN CUPO · DEVOLVER" + botón "Ya le devolví la plata" (la deja como devuelta). Queda en Actividad.
+- **Conteos completos:** Supabase cortaba en 1000 filas sin avisar (con 9 fiestas se pasaba rápido y contaba de menos). Ahora trae todo de a páginas (`lib/supabase/paginar.ts`) y, para contar cupos, pide solo 4 columnas por entrada.
+- **Tope de compras por IP:** 15 compras iniciadas cada 10 min (`lib/limite.ts`, también lo usa el login).
+- **Tarjeta rechazada ya no cierra la compra** (falla que venía de antes): si la persona prueba con otra tarjeta en el mismo checkout y paga, se emiten las entradas. Antes ese pago se ignoraba → cobrado sin entradas. Un pago aprobado o transferencia que llega para una compra rechazada/vencida la reabre.
+- **Avisos de MP y Talo con reintento:** si falla algo momentáneo (base, red) responden error para que MP/Talo los reintenten. Antes respondían OK y la compra quedaba pendiente con la plata cobrada.
+- **Admin → Compras → "Revisar pago":** consulta MP/Talo para una compra pendiente ("pagué y no me llegó"); si estaba paga, emite y manda el mail.
+- **PIN en producción:** con la base nueva (`app_pins` vacía) y sin `ADMIN_PIN` en Vercel, el PIN de jefe era `1234`. Ahora en producción un PIN débil (1234 o menos de 6) nunca abre sesión: **hay que cargar `ADMIN_PIN` y `SCANNER_PIN` en Vercel** (ver paso 5).
+- **Visual:** portada del celular con abanico de 3 flyers; imagen para compartir el link (portada y una por fiesta con flyer, nombre, fecha y lugar, letra Righteous: `app/opengraph-image.tsx`, `app/fiesta/[slug]/opengraph-image.tsx`); la web muestra solo los medios de pago activos (antes siempre decía "Mercado Pago o Transferencia"); textos chicos a 12 px y más contraste; páginas de error y "no existe" con la marca; "Pago no realizado" deja probar de nuevo con la misma reserva; la pantalla de pago manda a las entradas si ya está paga.
+- Otros: cerrar la fiesta no borra los "pago sin cupo"; el mail se reintenta aunque el envío tire excepción; `/api/talo/sync` no da error sin Talo; tests nuevos (reservas, pago sin cupo, reintentos, PDF/mail con emojis y HTML, login en producción).
+- **Migración nueva:** `supabase/migrations/2026_11_reservas_y_problemas.sql` (columna `ordenes.problema` + índice). `npm run verify:supabase` avisa si falta.
+
+### Para después (no hecho, anotado)
+- **Compra:** aviso de mail mal escrito ("¿quisiste decir gmail.com?"), página `/mis-entradas` para reenviar por mail, contador "te guardamos tus entradas 09:58" en la pantalla de pago.
+- **Puerta:** pantalla siempre encendida en el scanner y en la entrada, contador real "ingresaron X de Y", ingreso manual por nombre.
+- **Menores:** si alguien paga dos veces la misma compra no se avisa; las reservas se podrían abusar (15 compras × 10 entradas por IP); nombres en alfabetos no latinos salen vacíos en el PDF; aprobación atómica en Postgres; partir `AdminDashboard.tsx`.
+
+## Estado al 9 nov 2026 (mañana)
+
+### Hecho
+- **Login/Staff**: el acceso al staff se llama así en el header de la portada, en el pie y en la pantalla del PIN.
+- **Modo prueba**: si los pagos son simulados o de prueba, la web muestra una barra "MODO SIMULACIÓN / MODO PRUEBA" (portada, fiesta, pago y éxito). Cada compra guarda `modo_pago` (`simulado` / `sandbox` / `produccion`): chip SIMULADA/PRUEBA en Compras y Emitidas, "ENTRADA DE PRUEBA" en el scanner y asunto `[PRUEBA]` en el mail. Admin → Pagos: estado de cada medio (Producción / Prueba / Apagado), guía para probar Mercado Pago con cuentas y tarjetas de prueba, checklist antes de lanzar, y "Probar" avisa si el token es de prueba o de producción y si no coincide con el ambiente. Publicar con pagos de prueba pide confirmación. Los avisos de Mercado Pago/Talo quedan en Actividad.
+- **Próximamente** (por tipo y por fiesta): en Admin → Entradas y precios, "Estado de venta" = A la venta / Próximamente con fecha (cuenta regresiva, abre sola) / Próximamente fecha a confirmar, y "Mostrar el precio antes de abrir". En Admin → Fiesta, bloque "Venta de la fiesta" igual. En la web: tarjetas PRÓXIMAMENTE sin precio ni cantidad (el precio tampoco viaja en la API), "Avisame cuando abra" por WhatsApp, badge "ANTICIPADAS A LA VENTA". Datos de ejemplo: Anticipada a la venta, General abre sola cuando cierra la anticipada, VIP a confirmar.
+- **Anulaciones a mano** (el comprador escribe por WhatsApp; plazo de ~4 horas, texto editable en Admin → Marca → "Política de anulación"): Admin → Compras → "Anular…" → elegir entradas, motivo y "Ya le devolví la plata". La entrada da rojo "Entrada anulada" en la puerta, desaparece del PDF, el cupo vuelve y queda en Actividad. Una entrada que ya ingresó no se puede anular. Sin API de reembolso de Mercado Pago (la plata la devuelve el jefe). Recaudado se muestra neto de lo devuelto.
+- **Marca Junior Eventos**: isotipo y nombre oficiales (desde `Desktop\plan\icons`, preparados con `node scripts/preparar-marca.mjs <carpeta>` en `public/marca/`), títulos en **Righteous** (parecida a las letras del logo), dorado se mantiene, magenta solo en el logo. Íconos de la app y favicon con el isotipo (`node scripts/make-icons.mjs --from public/marca/isotipo-claro.png`). Logo en la cabecera del PDF y del mail.
+- **Tests automáticos**: `npm test` (vitest, 45 pruebas, base en memoria): entradas solo con pago aprobado, cupos, precio congelado, Próximamente, avisos de MP/Talo (aprobado, rechazado, duplicado, monto menor), puerta, anulaciones, sesión firmada.
+- **Seguridad (arreglado)**:
+  - La sesión del staff era una cookie sin firmar (`admin:1`): cualquiera podía falsificarla y entrar al panel. Ahora está firmada (HMAC) y vence a las 12 h. Clave: `AUTH_SECRET` o, si no está, la `SUPABASE_SERVICE_ROLE_KEY`.
+  - Límite de 8 intentos fallidos de PIN cada 10 minutos por IP.
+  - `app_pins` y `app_payments` no tenían RLS: la clave pública (que va en el navegador) podía leer los PINs y el token de Mercado Pago. Ahora tienen RLS. **El proyecto de junio `paginaqr-eventos` sí existe (pausado) y mientras estuvo activo tenía ese problema: para lanzar, cargar un token de Mercado Pago de producción NUEVO (regenerado en el panel de MP), no el de junio.**
+  - Sin `APP_MODE` en el deploy de producción de Vercel la app caía en "simulación" (entradas gratis). Ahora en producción nunca se simula; si no hay medios de pago, no deja comprar.
+  - El pago de MP se aprueba solo si el monto pagado cubre la compra.
+  - El precio viejo de la fiesta (`eventos.precio`) ya no se publica.
+- **Supabase nuevo**: proyecto `junior-eventos` (ref `jllfdxxleszeimsxruva`, São Paulo, plan gratis) en la org `lovera2025's Org`. Ya tiene `schema.sql`, `storage.sql`, la migración `2026_11_modo_prueba_proximamente_anulaciones.sql` y el seed de las 9 fiestas (en borrador). URL y clave pública ya están en `.env.local`.
+  - **Decisión (9 nov): se lanza con `junior-eventos`.** El de junio `paginaqr-eventos` (otra cuenta/org, ref `vzstuqpbqaunuhcuitix`) queda **pausado** con los PINs y ventas de junio. Supabase permite 2 proyectos gratis activos por dueño: `lovera2025` tiene ArguelloApp + junior-eventos. **ArguelloApp no se pausa nunca.**
+
+### Acceso y cuentas (para probar)
+- **No hay registro ni usuarios.** Los compradores compran sin cuenta (nombre + mail). El staff entra solo con PIN en **Login/Staff**: un PIN de jefe (panel + scanner) y uno de puerta (solo scanner).
+- **PIN local de prueba:** el que está en `.env.local` (`ADMIN_PIN` / `SCANNER_PIN`). Hoy los dos son el de prueba `1234`, así que entra como jefe. Con la base real, mientras `app_pins` esté vacía, se usan esos mismos.
+- Para probar la puerta aparte: Admin → Seguridad → Cambiar PINs (6+ dígitos, distintos). **Antes de lanzar hay que cambiarlos sí o sí.**
+- Los PINs de junio quedaron en el proyecto pausado `paginaqr-eventos`; no se traen (decisión 9 nov).
+
+### Cómo probar hoy
+- **Sin la service role**, la app usa la base en memoria: lo que compres se borra al reiniciar el servidor. Con la clave pegada queda guardado en Supabase.
+- **En la compu:** `npm run dev` → http://localhost:3000. **En el celular (misma WiFi):** http://IP-de-la-PC:3000 sirve para comprar, pero la **cámara del scanner necesita https**: probarla en la versión de Vercel o con la webcam de la compu en localhost.
+- **Pagos:** sin Mercado Pago configurado, el pago se aprueba/rechaza con los botones de simulación (barra "MODO SIMULACIÓN"). Para tarjetas de prueba de MP hace falta el Access Token del vendedor de prueba (paso 4).
+
+### Conector de Supabase de Claude (importante)
+- El 9 nov el conector se cambió a la cuenta/org vieja **`paginaqr-eventos`** para buscar lo de junio. **Hoy Claude solo ve el proyecto pausado de junio, no `junior-eventos`.**
+- Para que Claude pueda volver a trabajar sobre `junior-eventos`: Claude → Configuración → Conectores → Supabase → Desconectar → Conectar → elegir la organización **`lovera2025's Org`**. (La app en sí no depende del conector: usa las claves de `.env.local` / Vercel.)
+- No se pudo reactivar `paginaqr-eventos`: límite de 2 proyectos gratis activos por dueño (ArguelloApp + junior-eventos). **ArguelloApp no se pausa nunca.**
+
+### Probado (9 nov, local)
+- Portada, fiesta, pago simulado, éxito, PDF (3 páginas con logo), admin (Compras, Anular, Entradas y precios, Pagos), /staff en 375 px sin scroll horizontal.
+- Por API: General próximamente → checkout 400; email inválido → 400; antes de aprobar entradas/PDF → 409; puerta válida → ya usada → otra fiesta; anular entrada usada → error; anular con devolución → rojo en la puerta, PDF individual 410, cupo +1, recaudado neto; cookie falsificada → 401.
+- `npm test` (45/45), `npm run lint` y `npm run build` sin errores.
+- **No probado todavía**: Supabase real desde la app (falta la service role), Mercado Pago de prueba, mail real, cámara del scanner, deploy.
+
+## Sesión anterior (7 nov 2026)
+
+### Hecho
+- **Varias fiestas a la vez.** Ya no existe "el evento activo": la portada muestra todas las fiestas en `venta` o `pausado`. Cada una tiene su página `/fiesta/<slug>` con flyer, cuenta regresiva, selector de entradas y compra.
+- **Tipos de entrada por fiesta** (tabla `tipos_entrada`): nombre, precio, cupo, venta desde/hasta, diseño (`anticipada`, `general`, `vip`, `custom`), beneficios, activo, orden. Se editan en **Admin → Entradas y precios**, con vista previa en vivo.
+  - El precio se **congela en la compra** (`ordenes.precio_unitario`); cambiarlo después no toca lo vendido.
+  - Al aprobar el pago se revalida cupo del tipo **y** aforo de la fiesta.
+  - Cada entrada guarda `tipo_nombre` y `estilo` (si renombrás o borrás el tipo, lo emitido no cambia). Un tipo con ventas no se borra: se desactiva.
+- **Entrada digital** con 3 diseños (Anticipada con cinta naranja, General con color de la fiesta, VIP negro y dorado). Mismo diseño en pantalla (`components/entradas/EntradaCard.tsx`), PDF (`lib/pdf/ticket.ts`, pdf-lib, A6) y mail. Colores en `lib/entradas/estilos.ts`.
+- **Solo se libera con pago confirmado**: `/api/ordenes/[id]/tickets` y los PDF devuelven 409 si la orden no está `aprobado`.
+- **Descargas**: `/api/ordenes/[id]/pdf` (todas) y `/api/entradas/[ticketId]/pdf` (una). Botones en la pantalla de éxito y en el mail.
+- **Mail reactivado** (`lib/email/notify.ts`): se manda una sola vez al aprobar (reserva con `email_sent_at`). Si falla, la compra igual se ve en pantalla.
+- **Puerta**: `verifyTicket(ticketId, eventoId)` con avisos por color en el scanner: verde válido (badge VIP dorado), amarillo "ya ingresó HH:MM", rojo cancelada, naranja "es de otra fiesta" (no gasta la entrada), gris "QR no reconocido". Sonido y vibración. El scanner elige la fiesta arriba (se recuerda en el teléfono).
+- **Staff sin escribir URLs**: `/staff` con teclado de PIN. El PIN decide el rol (admin → Panel + Scanner; scanner → solo Scanner). `/admin` y `/scanner` sin sesión redirigen a `/staff`. Candado discreto en el footer. PWA "JE Staff" (`public/manifest.json`, íconos generados con `node scripts/make-icons.mjs`).
+- **Admin**: selector de fiesta arriba, botón "+ Nueva fiesta" (crea en borrador con un tipo General), pestañas nuevas **Entradas y precios**, **Marca** (nombre, logo, contacto globales) y en Resumen **Ventas de todas las fiestas** (vendidas/aforo, desglose por tipo, recaudado, ingresaron). Compras y Emitidas muestran el tipo; Emitidas filtra por tipo.
+- **Diseño**: negro + dorado, Montserrat + Inter + Great Vibes, partículas, marquee de fechas, tarjetas con tilt (framer-motion). Mockups en Claude Design: https://claude.ai/artifact/JTqQ3y25KbpoxKcrFW9QR8
+- **Datos**: los 9 flyers están en `public/flyers/<slug>.png` (copia en `imagen/flyers/`). En modo local (mock) se cargan solas las 9 fiestas con Anticipada $15.000 (cupo 150, hasta 7 días antes), General $18.000 y VIP $35.000 (cupo 40). **Precios, hora (22:00) y aforo (400) son de ejemplo.**
+
+### Probado (modo local, navegador integrado)
+- Compra 3 × VIP → con pago pendiente las entradas y el PDF dan 409 → simular pago → aparecen las 3 con QR y diseño VIP.
+- PDF de VIP, Anticipada y General renderizado y revisado (3 diseños distintos).
+- Puerta por API: válida → ya usada (con hora) → otra fiesta (no la gasta) → QR inválido.
+- Anticipada cerrada → checkout rechazado. VIP con cupo 1 → segunda compra rechazada. Borrar tipo con ventas → bloqueado. Cambiar precio VIP → lo recaudado no cambia.
+- Login `/staff` → redirige a `/admin`. Sin scroll horizontal en 375 px.
+- `npm run build` y `npm run lint` sin errores.
+- **No probado**: cámara del scanner (el navegador integrado no tiene cámara), Mercado Pago/Talo reales, Supabase real, envío real de mails.
+
+## Pendiente para retomar (en este orden)
+
+**Hecho el 9 nov:** service role ✅, migración ✅, conector de Supabase ✅, primera vuelta con la base real ✅, **Mercado Pago de prueba ✅** (ver abajo).
+
+**Antes de lanzar (10 nov) — checklist**
+1. **Precio de la Anticipada de Pinaroli:** hoy está en **$1.000** (se bajó para probar). Volverla al precio real.
+2. **Datos reales del jefe** (paso 7 de abajo), sobre todo el **WhatsApp de contacto** (vacío).
+3. **PINs fuertes:** Admin → Seguridad en la base real, y `ADMIN_PIN`/`SCANNER_PIN` en Vercel.
+4. **Vercel** (paso 5) → **deploy** (paso 6) → **compra de prueba en la URL pública** con el token de prueba (ahí sí vuelve sola de MP y llega el aviso automático/webhook) → probar también `OTHE` y `OTHE`→`APRO` en el mismo checkout → **cámara del scanner en un celular**.
+5. **Salir a producción** (paso 8): token de MP de producción del jefe, ambiente Producción, **Reiniciar ventas** en cada fiesta (borra las compras de prueba: hay varias en Pinaroli), publicar.
+
+**Cómo probar Mercado Pago (aprendido el 9 nov)**
+- El token de prueba es el de **Credenciales de prueba** de la app (`APP_USR-…`, de un vendedor de prueba que MP crea solo). En Admin → Pagos va con ambiente **Prueba (sandbox)**; "Probar" dice "token de PRUEBA".
+- **Pagar sin iniciar sesión en MP** ("Tarjeta" → Visa `4509 9535 6623 3704`, `123`, `11/30`, titular `APRO`, DNI `12345678`, mail inventado). Funciona en una ventana **sin sesión de Mercado Pago**: si el navegador tiene tu cuenta real de MP abierta (o la del vendedor de prueba), MP muestra tus tarjetas reales o "Una de las partes con la que intentás hacer el pago es de prueba". Cuenta Comprador de prueba creada ("buyer Test User"), no hizo falta.
+- En la PC (localhost) MP **no vuelve solo** ni avisa: después de pagar hay que abrir la pantalla de éxito de la compra; la web busca el pago y emite las entradas. En la URL pública vuelve solo.
+- Probado el 9 nov: compra `6c15ad8b` → pago `188759307070` aprobado → compra aprobada → 1 entrada. **No probado con MP real:** `OTHE` (rechazada) y `OTHE`→`APRO` (tienen test automático; probarlos en la URL pública).
+5. **Vercel:** autorizar el equipo `maximiliano-loveras-projects` para el conector de Claude (o cargar a mano en el dashboard): `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` de `junior-eventos`, `AUTH_SECRET` (texto largo al azar), `APP_MODE=production`, `NEXT_PUBLIC_APP_URL` (ya no hace falta `RESEND_*`: sin mail), **`ADMIN_PIN` y `SCANNER_PIN` (6+ dígitos, distintos: sin esto no se puede entrar al panel en producción)**. **Borrar `MP_ACCESS_TOKEN` de Vercel** (token productivo de junio): si queda, se usa cuando la tabla de pagos está vacía y las pruebas cobrarían de verdad. Hoy la web de junio (https://jreventos-entradas.vercel.app) apunta al proyecto pausado y muestra "No hay evento activo". Ver `docs/VERCEL-DEPLOY.md`.
+
+**Mañana 10 nov — lanzamiento (solo si todo lo de arriba anduvo y el usuario da el OK)**
+6. **Deploy y webhook real:** push de `rediseno-recepciones`, PR y merge a `main` (Vercel despliega solo). En MP → tu app → **Configuración de webhooks**: `https://<dominio>/api/webhook-mp`, evento Pagos (para el token de prueba y después para el de producción). En la URL pública repetir una compra de prueba y ver en Actividad "MP … → aprobado (PRUEBA)" y la cámara del scanner en el celular.
+7. **Datos reales del jefe:** precios, hora, aforo, cierre de anticipadas, **WhatsApp de contacto (hoy vacío en la base real: sin él no aparecen los botones de anular, pago sin cupo, "no encuentro mi entrada" ni el de la portada)**, texto de la política de anulación.
+8. **Salir a producción:** token de MP de producción **nuevo** con ambiente Producción → "Probar" dice PRODUCCIÓN → Reiniciar ventas en cada fiesta (borra las compras de prueba; solo en borrador) → PINs fuertes → Publicar cada fiesta. El aviso MODO PRUEBA desaparece solo.
+9. ~~Mail real~~: descartado (9 nov). Las entradas se entregan en pantalla + PDF.
+
+**Después**
+10. Puerta: pantalla siempre encendida en el scanner, contador real "ingresaron X de Y", ingreso manual por nombre si falla la cámara. Exportar ventas a Excel, compra mixta de tipos.
+
+### Archivos clave del rediseño
+| Tema | Archivos |
+|------|----------|
+| Reglas de tipos y disponibilidad | `lib/entradas/tipos.ts` |
+| Diseños de entrada | `lib/entradas/estilos.ts`, `components/entradas/EntradaCard.tsx`, `lib/pdf/ticket.ts` |
+| Datos (mock / Supabase) | `lib/db/index.ts`, `lib/mock/db.ts`, `lib/mock/seed.ts`, `lib/supabase/queries.ts` |
+| Público | `app/page.tsx`, `app/fiesta/[slug]/page.tsx`, `components/publico/*` |
+| Mis entradas (por dispositivo) | `app/mis-entradas/page.tsx`, `components/publico/MisEntradasLista.tsx`, `lib/entradas/guardadas.ts` |
+| Pago y éxito | `app/comprar/pago/page.tsx`, `app/compra/exito/page.tsx`, `components/comprar/TicketQrPanel.tsx` |
+| Staff | `app/staff/page.tsx`, `components/auth/PinGate.tsx`, `components/scanner/QRScanner.tsx` |
+| Admin | `components/admin/AdminDashboard.tsx`, `TiposEntradaPanel.tsx`, `BrandingForm.tsx`, `VentasGenerales.tsx` |
+| SQL | `supabase/schema.sql`, `supabase/migrations/2026_11_modo_prueba_proximamente_anulaciones.sql`, `supabase/seeds/recepciones_2026.sql` |
+| Modo prueba | `lib/payments/modo.ts`, `lib/payments/methods.ts`, `components/publico/AvisoModoPrueba.tsx`, `components/admin/ChecklistPruebas.tsx` |
+| Próximamente | `lib/entradas/tipos.ts` (`fiestaEnProximamente`, `tipoEnProximamente`, `tipoParaPublico`), `components/publico/CompraEntradas.tsx` |
+| Anulaciones | `lib/entradas/anulaciones.ts`, `components/admin/AnularModal.tsx`, `app/api/admin/ordenes/[id]/anular/route.ts` |
+| Sesión staff | `lib/auth/session.ts`, `lib/auth/cookies.ts`, `app/api/auth/pin/route.ts` |
+| Marca | `public/marca/`, `components/publico/Marca.tsx`, `scripts/preparar-marca.mjs`, `scripts/make-icons.mjs` |
+| Reservas y pago sin cupo | `lib/entradas/tipos.ts` (`reservasVigentes`), `lib/payments/reserva.ts`, `lib/payments/problemas.ts`, `app/api/admin/ordenes/[id]/devuelta`, `.../revisar` |
+| Supabase de a páginas / tope por IP | `lib/supabase/paginar.ts`, `lib/limite.ts` |
+| Imagen para compartir | `app/opengraph-image.tsx`, `app/fiesta/[slug]/opengraph-image.tsx`, `lib/og.ts` |
+| Tests | `tests/*.test.ts`, `vitest.config.mts` |
+
+---
+
+# Historial anterior (junio 2026)
+
+## Meta de junio
 
 | Hito | Fecha |
 |------|-------|

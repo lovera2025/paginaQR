@@ -1,13 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ImageUploadField } from "@/components/admin/ImageUploadField";
+import { TiposEntradaPanel } from "@/components/admin/TiposEntradaPanel";
+import { BrandingForm } from "@/components/admin/BrandingForm";
+import { VentasGenerales } from "@/components/admin/VentasGenerales";
+import { AnularModal } from "@/components/admin/AnularModal";
+import { ChecklistPruebas } from "@/components/admin/ChecklistPruebas";
+import { ConectarMercadoPago } from "@/components/admin/ConectarMercadoPago";
+import { EtapasVenta } from "@/components/admin/EtapasVenta";
+import { GuiaInicio } from "@/components/admin/GuiaInicio";
+import { MARCA_ISOTIPO } from "@/components/publico/Marca";
+import { getEstiloEntrada } from "@/lib/entradas/estilos";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 import type {
   ActivityLog,
   AdminStats,
   Evento,
   HistorialItem,
+  ModoPago,
   Orden,
   Ticket,
 } from "@/types";
@@ -20,6 +31,7 @@ import {
   EVENTO_ESTADO_LABELS,
 } from "@/lib/evento/estado";
 import {
+  diaCorto,
   formatFecha,
   formatFechaCorta,
   formatPrecio,
@@ -27,7 +39,10 @@ import {
   ticketEstadoLabel,
 } from "@/lib/utils";
 
-type Tab = "resumen" | "compras" | "entradas" | "apariencia" | "actividad" | "historial" | "pagos" | "seguridad";
+type Tab = "resumen" | "tipos" | "compras" | "entradas" | "apariencia" | "marca" | "actividad" | "historial" | "pagos" | "seguridad";
+
+const LS_EVENTO = "admin.eventoId";
+const LS_GUIA_OCULTA = "admin.guiaOculta";
 type Toast = { type: "success" | "error"; text: string };
 
 interface SecurityInfo {
@@ -59,6 +74,28 @@ interface MpPagosInfo {
 interface PagosInfo {
   talo: TaloPagosInfo;
   mp: MpPagosInfo;
+  modo?: { simulate: boolean; sandbox: boolean; sinMedios: boolean; appMode: string };
+}
+
+interface ModoCobro {
+  simulate: boolean;
+  sandbox: boolean;
+  sinMedios: boolean;
+}
+
+function ChipModo({ modo }: { modo: ModoPago | null }) {
+  if (modo === "simulado")
+    return <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] text-white/60">SIMULADA</span>;
+  if (modo === "sandbox")
+    return <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] text-amber-300">PRUEBA</span>;
+  return null;
+}
+
+function estadoMedioLabel(m: { enabled: boolean; configured: boolean; environment: "sandbox" | "production" }) {
+  if (!m.configured) return { texto: "Sin conectar", clase: "bg-yellow-500/20 text-yellow-300" };
+  if (!m.enabled) return { texto: "Pausado", clase: "bg-white/10 text-white/50" };
+  if (m.environment === "sandbox") return { texto: "Modo prueba", clase: "bg-amber-400/20 text-amber-300" };
+  return { texto: "Cobros reales", clase: "bg-green-500/20 text-green-400" };
 }
 
 interface HistorialDetalle {
@@ -105,6 +142,26 @@ function Field({
   );
 }
 
+/** Color con selector visual (sin tener que escribir el código). */
+function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const valido = /^#[0-9a-fA-F]{6}$/.test(value);
+  return (
+    <div>
+      <label className="mb-1 block text-sm text-white/60">{label}</label>
+      <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/40 px-3 py-2">
+        <input
+          type="color"
+          aria-label={label}
+          value={valido ? value : "#000000"}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-9 w-12 cursor-pointer rounded border border-white/20 bg-transparent"
+        />
+        <span className="font-mono text-sm text-white/60">{value}</span>
+      </div>
+    </div>
+  );
+}
+
 const EMPTY_NUEVO = {
   nombre: "",
   fecha: "",
@@ -117,12 +174,6 @@ const EMPTY_PAGOS_TALO_FORM = {
   userId: "",
   clientId: "",
   clientSecret: "",
-  environment: "production" as "sandbox" | "production",
-  enabled: true,
-};
-
-const EMPTY_PAGOS_MP_FORM = {
-  accessToken: "",
   environment: "production" as "sandbox" | "production",
   enabled: true,
 };
@@ -142,11 +193,26 @@ export function AdminDashboard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [activity, setActivity] = useState<ActivityLog[]>([]);
   const [evento, setEvento] = useState<Evento | null>(null);
+  // Copia editable de la fiesta (Apariencia). No se pisa con la actualización en vivo mientras hay cambios.
+  const [draft, setDraftState] = useState<Evento | null>(null);
+  const dirtyRef = useRef(false);
+  const setDraft = (e: Evento) => {
+    dirtyRef.current = true;
+    setDraftState(e);
+  };
+  const [eventos, setEventos] = useState<Evento[]>([]);
+  const [eventoId, setEventoId] = useState<string>("");
+  const [version, setVersion] = useState(0);
+  const [filtroTipo, setFiltroTipo] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetConfirm, setResetConfirm] = useState("");
+  const [anularOrdenId, setAnularOrdenId] = useState<string | null>(null);
+  const [modoCobro, setModoCobro] = useState<ModoCobro | null>(null);
+  // Guía de puesta en marcha: visible hasta que la ocultan en este dispositivo.
+  const [guiaAbierta, setGuiaAbierta] = useState(false);
 
   // Nuevo evento
   const [nuevoOpen, setNuevoOpen] = useState(false);
@@ -171,35 +237,94 @@ export function AdminDashboard() {
   // Pagos (Talo + Mercado Pago)
   const [pagosInfo, setPagosInfo] = useState<PagosInfo | null>(null);
   const [pagosTaloForm, setPagosTaloForm] = useState(EMPTY_PAGOS_TALO_FORM);
-  const [pagosMpForm, setPagosMpForm] = useState(EMPTY_PAGOS_MP_FORM);
   const [pagosTaloLoading, setPagosTaloLoading] = useState(false);
-  const [pagosMpLoading, setPagosMpLoading] = useState(false);
   const [pagosTaloTestLoading, setPagosTaloTestLoading] = useState(false);
-  const [pagosMpTestLoading, setPagosMpTestLoading] = useState(false);
   const [pagosTaloError, setPagosTaloError] = useState("");
-  const [pagosMpError, setPagosMpError] = useState("");
   const [pagosTaloTestOk, setPagosTaloTestOk] = useState<boolean | null>(null);
-  const [pagosMpTestOk, setPagosMpTestOk] = useState<boolean | null>(null);
 
   function showToast(type: Toast["type"], text: string) {
     setToast({ type, text });
-    setTimeout(() => setToast(null), 4000);
+    setTimeout(() => setToast(null), 5000);
+  }
+
+  useEffect(() => {
+    try {
+      setGuiaAbierta(localStorage.getItem(LS_GUIA_OCULTA) !== "1");
+    } catch {
+      setGuiaAbierta(true);
+    }
+  }, []);
+
+  function mostrarGuia(abierta: boolean) {
+    setGuiaAbierta(abierta);
+    try {
+      if (abierta) localStorage.removeItem(LS_GUIA_OCULTA);
+      else localStorage.setItem(LS_GUIA_OCULTA, "1");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Fiesta elegida: la guardada en este teléfono o la próxima.
+  useEffect(() => {
+    let guardado = "";
+    try {
+      guardado = localStorage.getItem(LS_EVENTO) ?? "";
+    } catch {
+      /* ignore */
+    }
+    fetch("/api/admin/eventos", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        const lista = (d.eventos ?? []) as Evento[];
+        setEventos(lista);
+        const elegido =
+          lista.find((x) => x.id === guardado)?.id ??
+          lista.find((x) => new Date(x.fecha).getTime() > Date.now() - 12 * 3600 * 1000)?.id ??
+          lista[0]?.id ??
+          "";
+        setEventoId(elegido);
+      });
+  }, []);
+
+  function elegirEvento(id: string) {
+    dirtyRef.current = false;
+    setEventoId(id);
+    setFiltroTipo("");
+    try {
+      localStorage.setItem(LS_EVENTO, id);
+    } catch {
+      /* ignore */
+    }
   }
 
   const refresh = useCallback(async () => {
+    const lista = await fetch("/api/admin/eventos", { cache: "no-store" }).then((r) => r.json());
+    setEventos(lista.eventos ?? []);
+    setVersion((v) => v + 1);
+    if (!eventoId) {
+      setEvento(null);
+      setStats(null);
+      setOrdenes([]);
+      setTickets([]);
+      return;
+    }
+    const q = `?evento=${encodeURIComponent(eventoId)}`;
     const [s, o, t, a, e] = await Promise.all([
-      fetch("/api/admin/stats").then((r) => r.json()),
-      fetch("/api/admin/ordenes").then((r) => r.json()),
-      fetch("/api/admin/tickets").then((r) => r.json()),
+      fetch(`/api/admin/stats${q}`).then((r) => r.json()),
+      fetch(`/api/admin/ordenes${q}`).then((r) => r.json()),
+      fetch(`/api/admin/tickets${q}`).then((r) => r.json()),
       fetch("/api/admin/activity").then((r) => r.json()),
-      fetch("/api/admin/evento").then((r) => r.json()),
+      fetch(`/api/admin/evento${q}`).then((r) => r.json()),
     ]);
-    setStats(s);
+    setStats(s?.porTipo ? s : null);
     setOrdenes(o.ordenes ?? []);
     setTickets(t.tickets ?? []);
     setActivity(a.activity ?? []);
-    setEvento(e?.id ? { ...e, estado: e.estado ?? "borrador" } : null);
-  }, []);
+    const ev = e?.id ? ({ ...e, estado: e.estado ?? "borrador" } as Evento) : null;
+    setEvento(ev);
+    if (!dirtyRef.current) setDraftState(ev);
+  }, [eventoId]);
 
   useEffect(() => {
     refresh();
@@ -219,6 +344,14 @@ export function AdminDashboard() {
     const interval = setInterval(checkSession, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Modo de cobro (simulación / prueba / real) para avisos del panel.
+  useEffect(() => {
+    fetch("/api/checkout", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setModoCobro({ simulate: Boolean(d.simulate), sandbox: Boolean(d.sandbox), sinMedios: Boolean(d.sinMedios) }))
+      .catch(() => {});
+  }, [pagosInfo]);
 
   // Cargar historial cuando se abre la pestaña
   useEffect(() => {
@@ -252,13 +385,19 @@ export function AdminDashboard() {
           environment: d.talo?.environment === "sandbox" ? "sandbox" : "production",
           enabled: d.talo?.enabled !== false,
         });
-        setPagosMpForm({
-          accessToken: "",
-          environment: d.mp?.environment === "sandbox" ? "sandbox" : "production",
-          enabled: d.mp?.enabled !== false,
-        });
       });
   }, [tab, pagosInfo]);
+
+  /** Vuelve a leer el estado de Mercado Pago sin desmontar el formulario (así no se pierde el resultado). */
+  async function recargarEstadoPagos() {
+    try {
+      const d = await fetch("/api/admin/pagos", { cache: "no-store" }).then((r) => r.json());
+      if (d?.mp) setPagosInfo(d);
+    } catch {
+      /* se actualiza al volver a entrar a la pestaña */
+    }
+    setVersion((v) => v + 1);
+  }
 
   async function loadHistorialDetalle(eventoId: string) {
     if (selectedHistorialId === eventoId) {
@@ -279,7 +418,7 @@ export function AdminDashboard() {
   }
 
   async function handleCancel(ticketId: string) {
-    if (!confirm("¿Dar de baja esta entrada?")) return;
+    if (!confirm("¿Dar de baja esta entrada SIN devolver plata? El QR deja de valer. Si el comprador pidió la devolución, usá Compras → Anular.")) return;
     setActionLoading(ticketId);
     try {
       const res = await fetch(`/api/admin/tickets/${ticketId}/cancel`, {
@@ -299,11 +438,49 @@ export function AdminDashboard() {
     }
   }
 
-  // Reembolsos deshabilitados temporalmente — reactivar handleRefund al habilitar el botón
-  // async function handleRefund(ordenId: string) { ... }
+  async function handleDevueltaSinCupo(o: Orden) {
+    if (
+      !confirm(
+        `¿Ya le devolviste ${formatPrecio(o.montoTotal)} a ${o.compradorNombre}? La compra queda cerrada como devuelta.`
+      )
+    )
+      return;
+    setActionLoading(o.id);
+    try {
+      const res = await fetch(`/api/admin/ordenes/${o.id}/devuelta`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast("error", data.error ?? "No se pudo guardar");
+        return;
+      }
+      showToast("success", "Devolución registrada");
+      refresh();
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleRevisarPago(o: Orden) {
+    setActionLoading(o.id);
+    try {
+      const res = await fetch(`/api/admin/ordenes/${o.id}/revisar`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast("error", data.error ?? "No se pudo consultar");
+        return;
+      }
+      if (data.orden?.estado === "aprobado") showToast("success", "Estaba paga: entradas emitidas (las ve en su pantalla o le pasás el PDF)");
+      else if (data.orden?.problema === "pago_sin_cupo") showToast("error", "Pagó pero ya no quedaban entradas: hay que devolverle la plata");
+      else if (data.error) showToast("error", data.error);
+      else showToast("success", "Todavía no hay un pago aprobado para esta compra");
+      refresh();
+    } finally {
+      setActionLoading(null);
+    }
+  }
 
   async function persistEvento(updated: Evento, successMsg?: string) {
-    const res = await fetch("/api/admin/evento", {
+    const res = await fetch(`/api/admin/evento?evento=${encodeURIComponent(updated.id)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated),
@@ -314,24 +491,51 @@ export function AdminDashboard() {
       return false;
     }
     if (successMsg) showToast("success", successMsg);
+    dirtyRef.current = false;
     refresh();
     return true;
   }
 
   async function handleImageUploaded(field: "logoUrl" | "flyerUrl", url: string) {
-    if (!evento) return;
-    const updated = { ...evento, [field]: url };
-    setEvento(updated);
+    if (!draft) return;
+    const updated = { ...draft, [field]: url };
+    setDraft(updated);
     const label = field === "logoUrl" ? "Logo actualizado" : "Flyer actualizado";
     await persistEvento(updated, label);
   }
 
   async function handleSaveEvento(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!evento) return;
+    if (!draft) return;
     setSaving(true);
-    await persistEvento(evento, "Cambios guardados");
+    await persistEvento(draft, "Cambios guardados");
     setSaving(false);
+  }
+
+  /** Copia el mensaje de "Próximamente" de esta fiesta a todas las demás (no cambia nada más). */
+  async function copiarMensajeProximamente() {
+    if (!draft) return;
+    const mensaje = (draft.mensajeProximamente ?? "").trim();
+    if (!confirm(`¿Usar este mensaje de Próximamente en las ${eventos.length} fiestas?`)) return;
+    setSaving(true);
+    try {
+      let fallaron = 0;
+      for (const e of eventos) {
+        const res = await fetch(`/api/admin/evento?evento=${encodeURIComponent(e.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mensajeProximamente: mensaje }),
+        });
+        if (!res.ok) fallaron += 1;
+      }
+      showToast(
+        fallaron ? "error" : "success",
+        fallaron ? `No se pudo guardar en ${fallaron} fiestas. Probá de nuevo.` : `Mensaje guardado en las ${eventos.length} fiestas`
+      );
+      refresh();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleResetVentas() {
@@ -344,7 +548,7 @@ export function AdminDashboard() {
       const res = await fetch("/api/admin/reset-ventas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmacion: resetConfirm }),
+        body: JSON.stringify({ confirmacion: resetConfirm, eventoId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -364,22 +568,30 @@ export function AdminDashboard() {
     accion: "abrir_venta" | "pausar" | "reanudar" | "cerrar"
   ) {
     const messages: Record<typeof accion, string> = {
-      abrir_venta:
-        "¿Abrir venta pública? No vas a poder reiniciar ventas después.",
+      abrir_venta: evento?.proximamente
+        ? "¿Publicar esta fiesta? Va a aparecer en la página como Próximamente (todavía sin venta). Después de publicar no se pueden reiniciar las ventas."
+        : "¿Publicar esta fiesta? Va a aparecer en la página y se puede comprar. Después de publicar no se pueden reiniciar las ventas.",
       pausar:
         "¿Pausar ventas? Nadie podrá comprar nuevo, pero las entradas vendidas siguen válidas.",
       reanudar: "¿Reanudar ventas? La compra pública volverá a estar habilitada.",
       cerrar:
-        "¿Cerrar y archivar este evento? Los datos se guardarán en Historial.",
+        "¿Cerrar y archivar esta fiesta? Sale de la página y los datos quedan en Historial.",
     };
-    if (!confirm(messages[accion])) return;
+    let mensaje = messages[accion];
+    if ((accion === "abrir_venta" || accion === "reanudar") && modoCobro && (modoCobro.simulate || modoCobro.sandbox)) {
+      mensaje = `ATENCIÓN: los pagos están en ${modoCobro.simulate ? "simulación (no se cobra nada)" : "modo prueba (no se cobra de verdad)"}. Antes de vender, conectá la cuenta real de Mercado Pago en la pestaña Pagos.\n\n${mensaje}`;
+    }
+    if ((accion === "abrir_venta" || accion === "reanudar") && modoCobro?.sinMedios) {
+      mensaje = `ATENCIÓN: Mercado Pago no está conectado: nadie va a poder pagar hasta que lo conectes en Pagos.\n\n${mensaje}`;
+    }
+    if (!confirm(mensaje)) return;
 
     setActionLoading(accion);
     try {
       const res = await fetch("/api/admin/evento/estado", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accion }),
+        body: JSON.stringify({ accion, eventoId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -387,17 +599,34 @@ export function AdminDashboard() {
         return;
       }
       const successMessages: Record<typeof accion, string> = {
-        abrir_venta: "Venta abierta",
+        abrir_venta: "Fiesta publicada",
         pausar: "Ventas pausadas",
         reanudar: "Ventas reanudadas",
-        cerrar: "Evento cerrado y archivado en Historial",
+        cerrar: "Fiesta cerrada y archivada en Historial",
       };
       showToast("success", successMessages[accion]);
       setHistorialItems(null);
+      if (accion === "cerrar") {
+        const resto = eventos.filter((x) => x.id !== eventoId);
+        elegirEvento(resto[0]?.id ?? "");
+      }
       refresh();
     } finally {
       setActionLoading(null);
     }
+  }
+
+  /** Saca la fiesta elegida de "Próximamente": empieza a vender según sus tipos de entrada. */
+  async function abrirVentaFiesta() {
+    if (!evento) return;
+    let mensaje = `¿Abrir la venta de ${evento.nombre}? Desde ese momento se puede comprar lo que esté "A la venta".`;
+    if (modoCobro && (modoCobro.simulate || modoCobro.sandbox)) {
+      mensaje = `ATENCIÓN: los pagos están en ${modoCobro.simulate ? "simulación" : "modo prueba"} (no se cobra de verdad). Conectá la cuenta real en Pagos antes de vender.\n\n${mensaje}`;
+    } else if (modoCobro?.sinMedios) {
+      mensaje = `ATENCIÓN: Mercado Pago no está conectado: nadie va a poder pagar. Conectalo en Pagos.\n\n${mensaje}`;
+    }
+    if (!confirm(mensaje)) return;
+    await persistEvento({ ...evento, proximamente: false, ventaAbre: null }, "Venta abierta");
   }
 
   async function copyOrdenLink(ordenId: string) {
@@ -438,9 +667,10 @@ export function AdminDashboard() {
       }
       setNuevoOpen(false);
       setNuevoForm(EMPTY_NUEVO);
-      showToast("success", `Evento "${data.evento.nombre}" creado en borrador`);
+      showToast("success", `"${data.evento.nombre}" creada en borrador. Cargá el flyer y los tipos de entrada.`);
       setHistorialItems(null);
-      refresh();
+      elegirEvento(data.evento.id);
+      setTab("tipos");
     } finally {
       setNuevoLoading(false);
     }
@@ -448,7 +678,7 @@ export function AdminDashboard() {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    window.location.reload();
+    window.location.href = "/staff";
   }
 
   async function handleSaveTaloPagos(e: React.FormEvent) {
@@ -498,46 +728,6 @@ export function AdminDashboard() {
     }
   }
 
-  async function handleSaveMpPagos(e: React.FormEvent) {
-    e.preventDefault();
-    setPagosMpError("");
-    setPagosMpTestOk(null);
-
-    if (!pagosMpForm.accessToken.trim() && !pagosInfo?.mp.hasToken) {
-      setPagosMpError("Ingresá el Access Token");
-      return;
-    }
-
-    setPagosMpLoading(true);
-    try {
-      const payload: Record<string, string | boolean> = {
-        provider: "mp",
-        environment: pagosMpForm.environment,
-        enabled: pagosMpForm.enabled,
-      };
-      if (pagosMpForm.accessToken.trim()) {
-        payload.accessToken = pagosMpForm.accessToken.trim();
-      }
-
-      const res = await fetch("/api/admin/pagos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setPagosMpError(data.error ?? "No se pudieron guardar las credenciales");
-        return;
-      }
-
-      showToast("success", "Credenciales de Mercado Pago guardadas");
-      setPagosInfo(null);
-      setPagosMpForm((f) => ({ ...f, accessToken: "" }));
-    } finally {
-      setPagosMpLoading(false);
-    }
-  }
-
   async function handleTestTaloPagos() {
     setPagosTaloError("");
     setPagosTaloTestOk(null);
@@ -561,55 +751,32 @@ export function AdminDashboard() {
     }
   }
 
-  async function handleTestMpPagos() {
-    setPagosMpError("");
-    setPagosMpTestOk(null);
-    setPagosMpTestLoading(true);
-    try {
-      const res = await fetch("/api/admin/pagos/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: "mp" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setPagosMpError(data.error ?? "No se pudo conectar con Mercado Pago");
-        setPagosMpTestOk(false);
-        return;
-      }
-      setPagosMpTestOk(true);
-      showToast("success", data.message ?? "Conexión OK");
-    } finally {
-      setPagosMpTestLoading(false);
-    }
-  }
-
   async function handleChangePins(e: React.FormEvent) {
     e.preventDefault();
     setPinChangeError("");
 
     if (!pinForm.pinActual) {
-      setPinChangeError("Ingresá tu PIN admin actual");
+      setPinChangeError("Ingresá tu PIN actual");
       return;
     }
     if (pinForm.pinAdminNuevo.length < 6) {
-      setPinChangeError("El PIN admin nuevo debe tener al menos 6 caracteres");
+      setPinChangeError("El PIN del organizador debe tener al menos 6 números");
       return;
     }
     if (pinForm.pinScannerNuevo.length < 6) {
-      setPinChangeError("El PIN scanner nuevo debe tener al menos 6 caracteres");
+      setPinChangeError("El PIN de puerta debe tener al menos 6 números");
       return;
     }
     if (pinForm.pinAdminNuevo === pinForm.pinScannerNuevo) {
-      setPinChangeError("El PIN admin y el scanner deben ser distintos");
+      setPinChangeError("Los dos PIN tienen que ser distintos");
       return;
     }
     if (pinForm.pinAdminNuevo !== pinForm.pinAdminConfirm) {
-      setPinChangeError("La confirmación del PIN admin no coincide");
+      setPinChangeError("El PIN del organizador no coincide con su repetición");
       return;
     }
     if (pinForm.pinScannerNuevo !== pinForm.pinScannerConfirm) {
-      setPinChangeError("La confirmación del PIN scanner no coincide");
+      setPinChangeError("El PIN de puerta no coincide con su repetición");
       return;
     }
 
@@ -637,9 +804,11 @@ export function AdminDashboard() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "resumen", label: "Resumen" },
+    { id: "tipos", label: "Entradas y precios" },
     { id: "compras", label: "Compras" },
-    { id: "entradas", label: "Entradas" },
-    { id: "apariencia", label: "Apariencia" },
+    { id: "entradas", label: "Entradas emitidas" },
+    { id: "apariencia", label: "Fiesta" },
+    { id: "marca", label: "Marca" },
     { id: "actividad", label: "Actividad" },
     { id: "historial", label: "Historial" },
     { id: "pagos", label: "Pagos" },
@@ -647,32 +816,84 @@ export function AdminDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f]">
-      <header className="sticky top-0 z-10 border-b border-white/10 bg-black/80 px-4 py-4 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Admin</h1>
-            <p className="text-xs text-white/40">Actualización en vivo</p>
+    <div className="min-h-screen bg-[#07070b]">
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-noche/90 px-4 py-3 backdrop-blur-md">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <a href="/staff" className="flex shrink-0 items-center gap-2" aria-label="Menú staff">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={MARCA_ISOTIPO} alt="" width={28} height={30} />
+              <span className="hidden font-display text-[11px] tracking-[0.22em] sm:inline">PANEL</span>
+            </a>
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/12 bg-white/[0.04] px-3 py-1.5 sm:max-w-md">
+              <label htmlFor="fiesta-admin" className="shrink-0 text-[10px] font-semibold tracking-[0.14em] text-white/45">
+                FIESTA
+              </label>
+              <select
+                id="fiesta-admin"
+                value={eventoId}
+                onChange={(e) => elegirEvento(e.target.value)}
+                className="min-w-0 flex-1 truncate bg-transparent py-1 font-display text-sm font-bold text-white outline-none"
+              >
+                {eventos.length === 0 && <option value="">Sin fiestas</option>}
+                {eventos.map((x) => (
+                  <option key={x.id} value={x.id} className="bg-noche">
+                    {diaCorto(x.fecha)} · {x.nombre}
+                    {x.estado === "borrador" ? " (borrador)" : x.estado === "pausado" ? " (pausada)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {evento && (
+              <span className={`hidden shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold sm:inline-block ${estadoBadgeClass(evento.estado)}`}>
+                {EVENTO_ESTADO_LABELS[evento.estado].split(" —")[0]}
+              </span>
+            )}
+            {modoCobro && (modoCobro.simulate || modoCobro.sandbox) && (
+              <button
+                type="button"
+                onClick={() => setTab("pagos")}
+                className="shrink-0 rounded-full bg-amber-400 px-3 py-1 text-[10px] font-extrabold tracking-[0.1em] text-tinta"
+                title="Los pagos no son reales. Tocá para ver Pagos."
+              >
+                {modoCobro.simulate ? "SIMULACIÓN" : "MODO PRUEBA"}
+              </button>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <a
-              href="/scanner"
-              target="_blank"
+            <button
+              type="button"
+              onClick={() => {
+                setTab("resumen");
+                mostrarGuia(true);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
               className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
             >
+              Ayuda
+            </button>
+            <button
+              onClick={() => {
+                setTab("resumen");
+                setNuevoOpen(true);
+              }}
+              className="rounded-lg bg-oro px-3 py-2 text-sm font-bold text-tinta hover:brightness-110"
+            >
+              + Nueva fiesta
+            </button>
+            {evento && (
+              <a
+                href={`/fiesta/${evento.slug}`}
+                target="_blank"
+                className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
+              >
+                Ver página
+              </a>
+            )}
+            <a href="/scanner" className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5">
               Scanner
             </a>
-            <a
-              href="/"
-              target="_blank"
-              className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
-            >
-              Ver web
-            </a>
-            <button
-              onClick={logout}
-              className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
-            >
+            <button onClick={logout} className="rounded-lg border border-white/10 px-3 py-2 text-sm hover:bg-white/5">
               Salir
             </button>
           </div>
@@ -686,7 +907,7 @@ export function AdminDashboard() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition ${
-                tab === t.id ? "bg-white text-black" : "text-white/60 hover:text-white"
+                tab === t.id ? "bg-oro text-tinta" : "text-white/60 hover:text-white"
               }`}
             >
               {t.label}
@@ -696,12 +917,14 @@ export function AdminDashboard() {
       </nav>
 
       <main className="mx-auto max-w-6xl px-4 py-8">
+        {/* Aviso fijo abajo: se ve aunque la página esté scrolleada. */}
         {toast && (
           <p
-            className={`mb-6 rounded-lg px-4 py-3 text-sm ${
+            role="status"
+            className={`fixed inset-x-4 bottom-4 z-[60] mx-auto max-w-xl rounded-xl border px-4 py-3 text-sm shadow-[0_10px_30px_rgba(0,0,0,0.6)] ${
               toast.type === "success"
-                ? "bg-green-500/10 text-green-400"
-                : "bg-red-500/10 text-red-400"
+                ? "border-green-500/40 bg-[#0d1f14] text-green-300"
+                : "border-red-500/40 bg-[#240f0f] text-red-300"
             }`}
           >
             {toast.text}
@@ -711,17 +934,31 @@ export function AdminDashboard() {
         {/* ── RESUMEN ────────────────────────────────────── */}
         {tab === "resumen" && (
           <>
+            {guiaAbierta && (
+              <GuiaInicio
+                version={version}
+                onIr={(t) => setTab(t)}
+                onCerrar={() => mostrarGuia(false)}
+                onToast={showToast}
+                onChanged={refresh}
+              />
+            )}
             {evento ? (
               <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm text-white/50">Estado del evento</p>
+                    <p className="text-sm text-white/50">{diaCorto(evento.fecha)} · {evento.lugar || "Lugar a confirmar"}</p>
                     <p className="mt-1 text-lg font-bold">{evento.nombre}</p>
                     <span
                       className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${estadoBadgeClass(evento.estado)}`}
                     >
                       {EVENTO_ESTADO_LABELS[evento.estado]}
                     </span>
+                    {evento.proximamente && (
+                      <span className="ml-2 mt-2 inline-block rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/70">
+                        Próximamente{evento.ventaAbre ? ` · abre ${formatFechaCorta(evento.ventaAbre)}` : " · fecha a confirmar"}
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {canResetVentas(evento.estado) && (
@@ -741,7 +978,7 @@ export function AdminDashboard() {
                         disabled={actionLoading === "abrir_venta"}
                         className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500 disabled:opacity-50"
                       >
-                        {actionLoading === "abrir_venta" ? "..." : "Abrir venta pública"}
+                        {actionLoading === "abrir_venta" ? "..." : "Publicar"}
                       </button>
                     )}
                     {canPausarVentas(evento.estado) && (
@@ -771,28 +1008,28 @@ export function AdminDashboard() {
                         disabled={actionLoading === "cerrar"}
                         className="rounded-xl border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/5 disabled:opacity-50"
                       >
-                        {actionLoading === "cerrar" ? "..." : "Cerrar evento"}
+                        {actionLoading === "cerrar" ? "..." : "Cerrar fiesta"}
                       </button>
                     )}
                   </div>
                 </div>
                 {evento.estado === "borrador" && (
                   <p className="mt-4 text-xs text-white/40">
-                    Modo prueba: podés reiniciar ventas para limpiar compras de test.
-                    Al abrir venta pública, reiniciar queda bloqueado.
+                    Borrador: todavía no aparece en la página. Podés verla con &quot;Ver página&quot; y hacer compras
+                    de prueba; antes de publicar, tocá Reiniciar ventas para borrarlas.
                   </p>
                 )}
                 {evento.estado === "pausado" && (
                   <p className="mt-4 text-xs text-amber-200/80">
-                    Las ventas están pausadas. Las entradas ya vendidas siguen válidas en el
-                    scanner. Usá &quot;Copiar link&quot; en Compras para reenviar QR por WhatsApp.
+                    Ventas pausadas: nadie puede comprar, pero las entradas ya vendidas siguen valiendo en la puerta.
+                    Con &quot;Copiar link&quot; en Compras le reenviás sus entradas a un comprador por WhatsApp.
                   </p>
                 )}
               </div>
             ) : (
               <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-6">
                 <p className="mb-4 text-white/60">
-                  No hay evento activo. Los datos del último evento están en{" "}
+                  No hay fiestas activas. Las anteriores están en{" "}
                   <button
                     className="underline hover:text-white"
                     onClick={() => setTab("historial")}
@@ -805,7 +1042,7 @@ export function AdminDashboard() {
                   onClick={() => setNuevoOpen(true)}
                   className="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black hover:bg-white/90"
                 >
-                  + Crear nuevo evento
+                  + Crear nueva fiesta
                 </button>
               </div>
             )}
@@ -816,8 +1053,8 @@ export function AdminDashboard() {
                 <div className="w-full max-w-md rounded-2xl border border-red-500/30 bg-[#12121a] p-6">
                   <h2 className="text-lg font-bold text-red-400">Reiniciar ventas</h2>
                   <p className="mt-2 text-sm text-white/60">
-                    Borra todas las compras y entradas de prueba de este evento.
-                    No archiva en historial. Los QRs viejos dejan de funcionar.
+                    Borra todas las compras y entradas de esta fiesta, sin dejar registro. Sirve para limpiar las
+                    pruebas antes de publicar. Las entradas borradas dejan de valer en la puerta.
                   </p>
                   <p className="mt-4 text-sm text-white/80">
                     Escribí <strong className="text-white">REINICIAR</strong> para confirmar:
@@ -854,14 +1091,14 @@ export function AdminDashboard() {
             {nuevoOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
                 <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#12121a] p-6">
-                  <h2 className="mb-4 text-lg font-bold">Nuevo evento</h2>
+                  <h2 className="mb-4 text-lg font-bold">Nueva fiesta</h2>
                   <form onSubmit={handleCrearNuevo} className="space-y-4">
                     <div>
-                      <label className="mb-1 block text-sm text-white/60">Nombre del evento</label>
+                      <label className="mb-1 block text-sm text-white/60">Nombre (colegio)</label>
                       <input
                         value={nuevoForm.nombre}
                         onChange={(e) => setNuevoForm({ ...nuevoForm, nombre: e.target.value })}
-                        placeholder="Ej: Fiesta de Promo 2027"
+                        placeholder="Ej: Colegio Secundario San Martín"
                         className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
                         autoFocus
                       />
@@ -878,7 +1115,7 @@ export function AdminDashboard() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="mb-1 block text-sm text-white/60">Precio ($)</label>
+                        <label className="mb-1 block text-sm text-white/60">Precio General ($)</label>
                         <input
                           type="number"
                           min="1"
@@ -908,7 +1145,7 @@ export function AdminDashboard() {
                         className="h-4 w-4 accent-white"
                       />
                       <span className="text-sm text-white/80">
-                        Copiar logo, flyer y contacto del evento anterior
+                        Copiar colores, lugar y contacto de la última fiesta
                       </span>
                     </label>
                     {nuevoError && (
@@ -917,7 +1154,7 @@ export function AdminDashboard() {
                       </p>
                     )}
                     <p className="text-xs text-white/40">
-                      Se crea en borrador — podés editar el resto en Apariencia antes de abrir venta.
+                      Se crea en borrador con una entrada General. Después sumás Anticipada/VIP y cargás el flyer.
                     </p>
                     <div className="flex gap-3 pt-2">
                       <button
@@ -932,7 +1169,7 @@ export function AdminDashboard() {
                         disabled={nuevoLoading}
                         className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black disabled:opacity-50"
                       >
-                        {nuevoLoading ? "Creando..." : "Crear evento"}
+                        {nuevoLoading ? "Creando..." : "Crear fiesta"}
                       </button>
                     </div>
                   </form>
@@ -940,31 +1177,116 @@ export function AdminDashboard() {
               </div>
             )}
 
-            {stats && (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  { label: "Vendidas activas", value: stats.vendidasActivas, color: "#ff006e" },
-                  { label: "Recaudado", value: formatPrecio(stats.recaudado), color: "#8338ec" },
-                  { label: "Sin usar", value: stats.sinUsar, color: "#3a86ff" },
-                  { label: "Ya ingresaron", value: stats.ingresaron, color: "#06d6a0" },
-                  { label: "Canceladas", value: stats.canceladas, color: "#ef476f" },
-                  { label: "Reembolsado", value: formatPrecio(stats.reembolsado), color: "#ffd166" },
-                  { label: "Capacidad", value: `${stats.vendidasActivas} / ${stats.capacidad}`, color: "#fff" },
-                  { label: "Disponibles", value: stats.disponibles, color: "#4cc9f0" },
-                ].map((card) => (
-                  <div key={card.label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                    <p className="text-sm text-white/50">{card.label}</p>
-                    <p className="text-2xl font-black" style={{ color: card.color }}>
-                      {card.value}
-                    </p>
+            {evento && (
+              <EtapasVenta
+                evento={evento}
+                version={version}
+                totalFiestas={eventos.length}
+                onToast={showToast}
+                onChanged={refresh}
+                onVerTodo={() => setTab("tipos")}
+                onAbrirFiesta={abrirVentaFiesta}
+              />
+            )}
+
+            {stats && evento && (
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  {[
+                    { label: "Recaudado (neto)", value: formatPrecio(stats.recaudado), color: "#f0d389" },
+                    { label: "Vendidas", value: `${stats.vendidasActivas} / ${stats.capacidad}`, color: "#fff" },
+                    { label: "Ya ingresaron", value: stats.ingresaron, color: "#4ade80" },
+                    { label: "Quedan", value: stats.disponibles, color: "#93c5fd" },
+                    { label: "Compras", value: stats.totalOrdenes, color: "#fff" },
+                    { label: "Sin usar", value: stats.sinUsar, color: "#cbd5e1" },
+                    { label: "Anuladas / bajas", value: stats.canceladas, color: "#f87171" },
+                    { label: "Devuelto", value: formatPrecio(stats.reembolsado), color: "#fbbf24" },
+                  ].map((card) => (
+                    <div key={card.label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                      <p className="text-xs text-white/50">{card.label}</p>
+                      <p className="mt-1 font-display text-2xl font-extrabold" style={{ color: card.color }}>
+                        {card.value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {stats.porTipo.length > 0 && (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {stats.porTipo.map((p) => {
+                      const e = getEstiloEntrada({ estilo: p.estilo, colorEvento: evento.colorPrimario, fondoEvento: evento.colorSecundario });
+                      return (
+                        <button
+                          type="button"
+                          key={`${p.tipoEntradaId}-${p.nombre}`}
+                          onClick={() => setTab("tipos")}
+                          className="flex items-center justify-between gap-3 rounded-2xl border p-4 text-left transition hover:brightness-110"
+                          style={{ borderColor: `${e.acento}66`, backgroundColor: `${e.acento}12` }}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-display text-sm font-bold" style={{ color: e.acento }}>{p.nombre}</span>
+                            <span className="text-xs text-white/60">
+                              {p.vendidas} vendidas{p.cupo !== null ? ` de ${p.cupo}` : ""}
+                            </span>
+                          </div>
+                          <span className="font-display text-lg font-extrabold">{formatPrecio(p.recaudado)}</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                ))}
+                )}
               </div>
             )}
+
+            <div className="mt-10">
+              <VentasGenerales version={version} eventoSeleccionado={eventoId} onSeleccionar={elegirEvento} />
+            </div>
           </>
         )}
 
+        {/* ── TIPOS DE ENTRADA ──────────────────────────────── */}
+        {tab === "tipos" && evento && (
+          <TiposEntradaPanel evento={evento} porTipo={stats?.porTipo ?? []} onToast={showToast} onChanged={refresh} />
+        )}
+        {tab === "tipos" && !evento && <p className="text-white/40">Elegí o creá una fiesta.</p>}
+
+        {/* ── MARCA ────────────────────────────────────────── */}
+        {tab === "marca" && <BrandingForm onToast={showToast} />}
+
         {/* ── COMPRAS ────────────────────────────────────── */}
+        {tab === "compras" && ordenes.some((o) => o.problema === "pago_sin_cupo" && o.estado === "pendiente") && (
+          <div role="alert" className="mb-4 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+            <p className="font-bold text-red-300">Hay pagos que entraron sin entradas disponibles</p>
+            <p className="mt-1 text-red-200/90">
+              Se vendieron las últimas mientras esas personas pagaban. No se les emitió entrada: devolveles la plata desde
+              Mercado Pago o la cuenta de Talo y avisales por mail o WhatsApp. Están marcadas abajo con{" "}
+              <strong>PAGO SIN CUPO</strong>.
+            </p>
+          </div>
+        )}
+        {tab === "compras" && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-white/55">
+              {ordenes.length} {ordenes.length === 1 ? "compra" : "compras"} en esta fiesta.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {eventoId && (
+                <a
+                  href={`/api/admin/ordenes/export?evento=${encodeURIComponent(eventoId)}`}
+                  className="flex h-9 items-center rounded-lg border border-white/20 px-3.5 text-xs font-semibold hover:bg-white/5"
+                >
+                  Descargar para Excel
+                </a>
+              )}
+              <a
+                href="/api/admin/ordenes/export"
+                className="flex h-9 items-center rounded-lg border border-white/20 px-3.5 text-xs font-semibold hover:bg-white/5"
+                title="Copia de respaldo con las compras de todas las fiestas"
+              >
+                Descargar todas las fiestas
+              </a>
+            </div>
+          </div>
+        )}
         {tab === "compras" && (
           <div className="overflow-x-auto rounded-2xl border border-white/10">
             <table className="w-full text-left text-sm">
@@ -973,8 +1295,10 @@ export function AdminDashboard() {
                   <th className="p-3">Fecha</th>
                   <th className="p-3">Comprador</th>
                   <th className="p-3">Email</th>
+                  <th className="p-3">Tipo</th>
                   <th className="p-3">Cant.</th>
                   <th className="p-3">Monto</th>
+                  <th className="p-3">Devuelto</th>
                   <th className="p-3">Estado</th>
                   <th className="p-3">Acciones</th>
                 </tr>
@@ -985,9 +1309,12 @@ export function AdminDashboard() {
                     <td className="p-3 text-white/60">{formatFechaCorta(o.createdAt)}</td>
                     <td className="p-3">{o.compradorNombre}</td>
                     <td className="p-3 text-white/60">{o.compradorEmail}</td>
+                    <td className="p-3">{o.tipoNombre}</td>
                     <td className="p-3">{o.cantidad}</td>
                     <td className="p-3">{formatPrecio(o.montoTotal)}</td>
+                    <td className="p-3 text-white/60">{o.montoReembolsado > 0 ? formatPrecio(o.montoReembolsado) : "—"}</td>
                     <td className="p-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
                       <span
                         className={`rounded-full px-2 py-1 text-xs ${
                           o.estado === "aprobado"
@@ -999,10 +1326,47 @@ export function AdminDashboard() {
                                 : "bg-red-500/20 text-red-400"
                         }`}
                       >
-                        {o.estado}
+                        {o.estado === "aprobado"
+                          ? "Pagada"
+                          : o.estado === "reembolsado"
+                            ? "Anulada"
+                            : o.estado === "pendiente"
+                              ? "Sin pagar"
+                              : "Rechazada o vencida"}
                       </span>
+                      {o.estado === "aprobado" && o.montoReembolsado > 0 && (
+                        <span className="rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] text-yellow-300">anulación parcial</span>
+                      )}
+                      <ChipModo modo={o.modoPago} />
+                      {o.problema === "pago_sin_cupo" && o.estado === "pendiente" && (
+                        <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] text-white">
+                          PAGO SIN CUPO · DEVOLVER
+                        </span>
+                      )}
+                      </div>
                     </td>
                     <td className="p-3">
+                      {(o.estado === "pendiente" || o.estado === "rechazado") && !o.problema && (
+                        <button
+                          type="button"
+                          disabled={actionLoading === o.id}
+                          onClick={() => handleRevisarPago(o)}
+                          title="Consulta en Mercado Pago o Talo si esta compra se pagó"
+                          className="text-left text-xs text-blue-400 hover:underline disabled:opacity-50"
+                        >
+                          {actionLoading === o.id ? "Consultando…" : "Revisar pago"}
+                        </button>
+                      )}
+                      {o.estado === "pendiente" && o.problema === "pago_sin_cupo" && (
+                        <button
+                          type="button"
+                          disabled={actionLoading === o.id}
+                          onClick={() => handleDevueltaSinCupo(o)}
+                          className="text-left text-xs font-semibold text-red-300 hover:underline disabled:opacity-50"
+                        >
+                          Ya le devolví la plata
+                        </button>
+                      )}
                       {o.estado === "aprobado" && (
                         <div className="flex flex-col gap-1">
                           <button
@@ -1012,13 +1376,19 @@ export function AdminDashboard() {
                           >
                             Copiar link
                           </button>
-                          <button
-                            disabled
-                            className="cursor-not-allowed text-left text-xs text-red-400 opacity-40"
+                          <a
+                            href={`/api/ordenes/${o.id}/pdf`}
+                            className="text-left text-xs text-oro hover:underline"
                           >
-                            Reembolsar
+                            Descargar PDF
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => setAnularOrdenId(o.id)}
+                            className="text-left text-xs text-red-400 hover:underline"
+                          >
+                            Anular…
                           </button>
-                          <span className="text-xs text-white/30">Deshabilitado temporalmente</span>
                         </div>
                       )}
                     </td>
@@ -1026,7 +1396,7 @@ export function AdminDashboard() {
                 ))}
                 {ordenes.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-white/40">
+                    <td colSpan={9} className="p-8 text-center text-white/40">
                       Sin compras aún
                     </td>
                   </tr>
@@ -1036,14 +1406,42 @@ export function AdminDashboard() {
           </div>
         )}
 
+        {anularOrdenId && (
+          <AnularModal
+            ordenId={anularOrdenId}
+            onClose={() => setAnularOrdenId(null)}
+            onDone={(msg) => {
+              setAnularOrdenId(null);
+              showToast("success", msg);
+              refresh();
+            }}
+          />
+        )}
+
         {/* ── ENTRADAS ────────────────────────────────────── */}
         {tab === "entradas" && (
+          <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-2">
+            {["", ...Array.from(new Set(tickets.map((t) => t.tipoNombre)))].map((tn) => (
+              <button
+                key={tn || "todas"}
+                type="button"
+                onClick={() => setFiltroTipo(tn)}
+                className={`h-9 rounded-full border px-4 text-xs font-semibold ${
+                  filtroTipo === tn ? "border-oro bg-oro/15 text-oro-claro" : "border-white/12 text-white/60"
+                }`}
+              >
+                {tn || "Todas"} ({tn ? tickets.filter((t) => t.tipoNombre === tn).length : tickets.length})
+              </button>
+            ))}
+          </div>
           <div className="overflow-x-auto rounded-2xl border border-white/10">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-white/10 bg-white/5">
                 <tr>
                   <th className="p-3">ID</th>
                   <th className="p-3">Comprador</th>
+                  <th className="p-3">Tipo</th>
                   <th className="p-3">Entrada</th>
                   <th className="p-3">Estado</th>
                   <th className="p-3">Ingreso</th>
@@ -1051,12 +1449,18 @@ export function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {tickets.map((t) => (
+                {tickets.filter((t) => !filtroTipo || t.tipoNombre === filtroTipo).map((t) => (
                   <tr key={t.id} className="border-b border-white/5">
                     <td className="p-3 font-mono text-xs text-white/40">{t.id.slice(0, 8)}…</td>
                     <td className="p-3">{t.compradorNombre}</td>
+                    <td className="p-3">{t.tipoNombre}</td>
                     <td className="p-3">{t.numeroEntrada}/{t.totalEntradas}</td>
-                    <td className="p-3">{ticketEstadoLabel(t)}</td>
+                    <td className="p-3">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {ticketEstadoLabel(t)}
+                        <ChipModo modo={ordenes.find((o) => o.id === t.ordenId)?.modoPago ?? null} />
+                      </span>
+                    </td>
                     <td className="p-3 text-white/60">
                       {t.usadoAt ? formatFechaCorta(t.usadoAt) : "—"}
                     </td>
@@ -1067,7 +1471,7 @@ export function AdminDashboard() {
                           disabled={actionLoading === t.id}
                           className="text-xs text-red-400 hover:underline disabled:opacity-50"
                         >
-                          {actionLoading === t.id ? "..." : "Dar de baja"}
+                          {actionLoading === t.id ? "..." : "Dar de baja (sin devolver plata)"}
                         </button>
                       )}
                     </td>
@@ -1075,7 +1479,7 @@ export function AdminDashboard() {
                 ))}
                 {tickets.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-white/40">
+                    <td colSpan={7} className="p-8 text-center text-white/40">
                       Sin entradas aún
                     </td>
                   </tr>
@@ -1083,25 +1487,46 @@ export function AdminDashboard() {
               </tbody>
             </table>
           </div>
+          </div>
         )}
 
         {/* ── APARIENCIA ────────────────────────────────────── */}
-        {tab === "apariencia" && evento && (
+        {tab === "apariencia" && draft && (
           <form onSubmit={handleSaveEvento} className="max-w-2xl space-y-4">
             <Field
-              label="Nombre del evento"
-              value={evento.nombre}
-              onChange={(v) => setEvento({ ...evento, nombre: v })}
+              label="Nombre (colegio)"
+              value={draft.nombre}
+              onChange={(v) => setDraft({ ...draft, nombre: v })}
             />
+            <div>
+              <label className="mb-1 block text-sm text-white/60">Link de la fiesta</label>
+              <div className="flex items-center overflow-hidden rounded-xl border border-white/10 bg-black/40">
+                <span className="shrink-0 pl-4 text-sm text-white/40">/fiesta/</span>
+                <input
+                  value={draft.slug}
+                  onChange={(e) =>
+                    setDraft({ ...draft, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-") })
+                  }
+                  className="min-w-0 flex-1 bg-transparent px-1 py-3 outline-none"
+                />
+              </div>
+              <p className="mt-1 text-xs text-white/40">Solo minúsculas, números y guiones. Es el link que compartís.</p>
+            </div>
+            <Field
+              label="Subtítulo"
+              value={draft.subtitulo}
+              onChange={(v) => setDraft({ ...draft, subtitulo: v })}
+            />
+            <Field label="DJ" value={draft.dj} onChange={(v) => setDraft({ ...draft, dj: v })} />
             <div>
               <label className="mb-1 block text-sm text-white/60">Fecha y hora del evento</label>
               <input
                 type="datetime-local"
-                value={isoToDatetimeLocalAr(evento.fecha)}
+                value={isoToDatetimeLocalAr(draft.fecha)}
                 onChange={(e) =>
-                  setEvento({
-                    ...evento,
-                    fecha: e.target.value ? `${e.target.value}:00-03:00` : evento.fecha,
+                  setDraft({
+                    ...draft,
+                    fecha: e.target.value ? `${e.target.value}:00-03:00` : draft.fecha,
                   })
                 }
                 className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none [color-scheme:dark]"
@@ -1109,10 +1534,10 @@ export function AdminDashboard() {
               <p className="mt-1 text-xs text-white/40">Hora Argentina (24 h, ej. 20:00)</p>
             </div>
             <ImageUploadField
-              label="Flyer (hero)"
+              label="Flyer de la fiesta"
               kind="flyer"
-              eventoId={evento.id}
-              value={evento.flyerUrl}
+              eventoId={draft.id}
+              value={draft.flyerUrl}
               onChange={(url) => handleImageUploaded("flyerUrl", url)}
               onError={(m) => showToast("error", m)}
               previewClassName="h-48 w-full"
@@ -1120,48 +1545,117 @@ export function AdminDashboard() {
             <ImageUploadField
               label="Logo"
               kind="logo"
-              eventoId={evento.id}
-              value={evento.logoUrl}
+              eventoId={draft.id}
+              value={draft.logoUrl}
               onChange={(url) => handleImageUploaded("logoUrl", url)}
               onError={(m) => showToast("error", m)}
               previewClassName="h-24 w-24"
             />
-            <Field label="Color primario (#hex)" value={evento.colorPrimario} onChange={(v) => setEvento({ ...evento, colorPrimario: v })} />
-            <Field label="Color secundario (#hex)" value={evento.colorSecundario} onChange={(v) => setEvento({ ...evento, colorSecundario: v })} />
-            <Field label="Descripción" value={evento.descripcion} onChange={(v) => setEvento({ ...evento, descripcion: v })} multiline />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <ColorField label="Color principal (botones y detalles)" value={draft.colorPrimario} onChange={(v) => setDraft({ ...draft, colorPrimario: v })} />
+              <ColorField label="Color de fondo (conviene oscuro)" value={draft.colorSecundario} onChange={(v) => setDraft({ ...draft, colorSecundario: v })} />
+            </div>
+            <Field label="Descripción" value={draft.descripcion} onChange={(v) => setDraft({ ...draft, descripcion: v })} multiline />
             <Field
-              label="Mensaje evento postergado"
-              value={evento.mensajePostergado ?? ""}
-              onChange={(v) => setEvento({ ...evento, mensajePostergado: v })}
+              label="Mensaje si la fiesta se posterga"
+              value={draft.mensajePostergado ?? ""}
+              onChange={(v) => setDraft({ ...draft, mensajePostergado: v })}
               multiline
             />
             <p className="-mt-2 text-xs text-white/40">
-              Se muestra en la landing y en /comprar cuando pausás ventas. Si lo dejás vacío, se
-              usa un texto por defecto.
+              Se muestra en la página de la fiesta mientras las ventas están pausadas. Vacío = texto estándar.
             </p>
-            <Field label="Lugar" value={evento.lugar} onChange={(v) => setEvento({ ...evento, lugar: v })} />
-            <Field label="Google Maps (URL)" value={evento.mapsUrl} onChange={(v) => setEvento({ ...evento, mapsUrl: v })} />
-            <Field label="WhatsApp (54911...)" value={evento.contactoWhatsapp} onChange={(v) => setEvento({ ...evento, contactoWhatsapp: v })} />
-            <Field label="Email contacto" value={evento.contactoEmail} onChange={(v) => setEvento({ ...evento, contactoEmail: v })} />
-            <Field label="Instagram (@usuario)" value={evento.contactoInstagram} onChange={(v) => setEvento({ ...evento, contactoInstagram: v })} />
-            <Field label="Texto footer" value={evento.textoFooter} onChange={(v) => setEvento({ ...evento, textoFooter: v })} multiline />
-            <Field label="Organizador" value={evento.organizadorNombre} onChange={(v) => setEvento({ ...evento, organizadorNombre: v })} />
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="mb-1 block text-sm text-white/60">Precio</label>
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <label htmlFor="fiesta-venta" className="mb-1 block text-sm font-semibold text-white/80">
+                Venta de la fiesta
+              </label>
+              <select
+                id="fiesta-venta"
+                value={!draft.proximamente ? "venta" : draft.ventaAbre ? "fecha" : "confirmar"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "venta") setDraft({ ...draft, proximamente: false, ventaAbre: null });
+                  else if (v === "confirmar") setDraft({ ...draft, proximamente: true, ventaAbre: null });
+                  else
+                    setDraft({
+                      ...draft,
+                      proximamente: true,
+                      ventaAbre: draft.ventaAbre ?? new Date(Date.now() + 7 * 864e5).toISOString(),
+                    });
+                }}
+                className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+              >
+                <option value="venta">Abierta (se vende lo que esté &quot;A la venta&quot; en Etapas)</option>
+                <option value="fecha">Próximamente · abre sola en una fecha (con cuenta regresiva)</option>
+                <option value="confirmar">Próximamente · sin fecha (la abrís vos)</option>
+              </select>
+              {draft.proximamente && draft.ventaAbre && (
                 <input
-                  type="number"
-                  value={evento.precio}
-                  onChange={(e) => setEvento({ ...evento, precio: Number(e.target.value) })}
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                  type="datetime-local"
+                  aria-label="Fecha y hora en que abre la venta"
+                  value={isoToDatetimeLocalAr(draft.ventaAbre)}
+                  onChange={(e) =>
+                    setDraft({ ...draft, ventaAbre: e.target.value ? `${e.target.value}:00-03:00` : draft.ventaAbre })
+                  }
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none [color-scheme:dark]"
                 />
+              )}
+              <p className="mt-2 text-xs text-white/45">
+                En Próximamente la fiesta se ve en la página con su flyer, pero nadie puede comprar.
+                {draft.proximamente && draft.ventaAbre ? " Abre sola cuando llega la fecha." : ""}
+                {" "}Tocá &quot;Guardar cambios&quot; para aplicarlo.
+              </p>
+              {draft.proximamente && (
+                <div className="mt-4">
+                  <label htmlFor="fiesta-msg-prox" className="mb-1 block text-sm text-white/60">
+                    Mensaje que ve la gente mientras está en Próximamente
+                  </label>
+                  <textarea
+                    id="fiesta-msg-prox"
+                    rows={2}
+                    maxLength={300}
+                    value={draft.mensajeProximamente ?? ""}
+                    onChange={(e) => setDraft({ ...draft, mensajeProximamente: e.target.value })}
+                    placeholder="Las entradas salen muy pronto. Volvé a entrar en unos días para comprar la tuya."
+                    className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                  />
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-white/40">Vacío = el texto de ejemplo.</p>
+                    {eventos.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={copiarMensajeProximamente}
+                        disabled={saving}
+                        className="text-xs font-semibold text-oro underline disabled:opacity-50"
+                      >
+                        Usar este mensaje en las {eventos.length} fiestas
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <Field label="Lugar" value={draft.lugar} onChange={(v) => setDraft({ ...draft, lugar: v })} />
+            <Field label="Link de Google Maps (para el botón Cómo llegar)" value={draft.mapsUrl} onChange={(v) => setDraft({ ...draft, mapsUrl: v })} />
+            <Field label="WhatsApp de esta fiesta (con código de país, ej. 5493794123456). Vacío = el de Marca" value={draft.contactoWhatsapp} onChange={(v) => setDraft({ ...draft, contactoWhatsapp: v })} />
+            <Field label="Email de contacto" value={draft.contactoEmail} onChange={(v) => setDraft({ ...draft, contactoEmail: v })} />
+            <Field label="Instagram (usuario)" value={draft.contactoInstagram} onChange={(v) => setDraft({ ...draft, contactoInstagram: v })} />
+            <Field label="Texto al pie de la página" value={draft.textoFooter} onChange={(v) => setDraft({ ...draft, textoFooter: v })} multiline />
+            <Field label="Organizador" value={draft.organizadorNombre} onChange={(v) => setDraft({ ...draft, organizadorNombre: v })} />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2 rounded-xl border border-oro/30 bg-oro/[0.06] px-4 py-3 text-sm text-white/70">
+                Los precios se cargan por tipo de entrada en{" "}
+                <button type="button" className="font-semibold text-oro underline" onClick={() => setTab("tipos")}>
+                  Entradas y precios
+                </button>
+                .
               </div>
               <div>
-                <label className="mb-1 block text-sm text-white/60">Capacidad</label>
+                <label className="mb-1 block text-sm text-white/60">Capacidad total (aforo)</label>
                 <input
                   type="number"
-                  value={evento.capacidad}
-                  onChange={(e) => setEvento({ ...evento, capacidad: Number(e.target.value) })}
+                  value={draft.capacidad}
+                  onChange={(e) => setDraft({ ...draft, capacidad: Number(e.target.value) })}
                   className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
                 />
               </div>
@@ -1175,9 +1669,9 @@ export function AdminDashboard() {
             </button>
           </form>
         )}
-        {tab === "apariencia" && !evento && (
+        {tab === "apariencia" && !draft && (
           <div className="text-white/40">
-            No hay evento activo para editar.{" "}
+            No hay una fiesta elegida.{" "}
             <button className="underline" onClick={() => setTab("resumen")}>
               Ir a Resumen
             </button>
@@ -1273,8 +1767,8 @@ export function AdminDashboard() {
                               { label: "Vendidas", value: item.stats.vendidasActivas },
                               { label: "Ingresaron", value: item.stats.ingresaron },
                               { label: "Sin usar", value: item.stats.sinUsar },
-                              { label: "Canceladas", value: item.stats.canceladas },
-                              { label: "Reembolsado", value: formatPrecio(item.stats.reembolsado) },
+                              { label: "Anuladas / bajas", value: item.stats.canceladas },
+                              { label: "Devuelto", value: formatPrecio(item.stats.reembolsado) },
                             ].map((c) => (
                               <div key={c.label} className="rounded-xl border border-white/10 bg-black/30 p-3 text-center">
                                 <p className="text-xs text-white/50">{c.label}</p>
@@ -1378,271 +1872,215 @@ export function AdminDashboard() {
         {tab === "pagos" && (
           <div className="max-w-xl space-y-6">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <h2 className="text-base font-bold">Cobros de entradas</h2>
-              <p className="mt-2 text-sm text-white/60">
-                Configurá acá cómo cobrar. No hace falta entrar a Vercel. Activá los
-                métodos que quieras; el comprador elige al pagar.
+              <h2 className="text-base font-bold">Cómo se cobra</h2>
+              <p className="mt-1 text-sm text-white/60">
+                El comprador paga online y recibe sus entradas al instante. La plata entra directo en tu cuenta.
               </p>
-            </div>
-
-            <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
-              Los reembolsos están temporalmente deshabilitados.
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <h2 className="mb-2 text-base font-bold">Transferencia — Talo Pay</h2>
-              <p className="mb-4 text-sm text-white/60">
-                Los compradores pagan y ven su QR en pantalla al confirmar el pago.
-              </p>
-
-              <div className="mb-5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
-                <p className="font-semibold">¿Dónde las encuentro?</p>
-                <p className="mt-1 text-blue-100/90">
-                  Entrá a{" "}
-                  <a
-                    href="https://app.talo.com.ar"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline"
-                  >
-                    app.talo.com.ar
-                  </a>{" "}
-                  → Usuario → Credenciales
+              {pagosInfo && (
+                <div className="mt-4 space-y-2">
+                  {[
+                    { nombre: "Mercado Pago (tarjeta y dinero en cuenta)", m: pagosInfo.mp },
+                    { nombre: "Talo (transferencia)", m: pagosInfo.talo },
+                  ].map(({ nombre, m }) => {
+                    const e = estadoMedioLabel(m);
+                    return (
+                      <div key={nombre} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 px-4 py-2.5">
+                        <span className="text-sm">{nombre}</span>
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${e.clase}`}>{e.texto}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {pagosInfo?.modo?.simulate && (
+                <p className="mt-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+                  <strong>Simulación:</strong> en esta compu de prueba el pago se aprueba con un botón, sin cobrar nada.
                 </p>
-              </div>
-
-              {pagosInfo === null ? (
-                <p className="text-sm text-white/40">Cargando...</p>
-              ) : (
-                <form onSubmit={handleSaveTaloPagos} className="space-y-4">
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
-                    <span className="text-sm">Ofrecer transferencia (Talo)</span>
-                    <input
-                      type="checkbox"
-                      checked={pagosTaloForm.enabled}
-                      onChange={(e) =>
-                        setPagosTaloForm({ ...pagosTaloForm, enabled: e.target.checked })
-                      }
-                      className="h-4 w-4"
-                    />
-                  </label>
-
-                  <Field
-                    label="User ID"
-                    value={pagosTaloForm.userId}
-                    onChange={(v) => setPagosTaloForm({ ...pagosTaloForm, userId: v })}
-                  />
-                  <Field
-                    label="Client ID"
-                    value={pagosTaloForm.clientId}
-                    onChange={(v) => setPagosTaloForm({ ...pagosTaloForm, clientId: v })}
-                  />
-                  <div>
-                    <label className="mb-1 block text-sm text-white/60">Client Secret</label>
-                    <input
-                      type="password"
-                      value={pagosTaloForm.clientSecret}
-                      onChange={(e) =>
-                        setPagosTaloForm({ ...pagosTaloForm, clientSecret: e.target.value })
-                      }
-                      placeholder={
-                        pagosInfo.talo.hasSecret
-                          ? "Dejá vacío para mantener el actual"
-                          : "Pegá el Client Secret"
-                      }
-                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm text-white/60">Ambiente</label>
-                    <select
-                      value={pagosTaloForm.environment}
-                      onChange={(e) =>
-                        setPagosTaloForm({
-                          ...pagosTaloForm,
-                          environment: e.target.value as "sandbox" | "production",
-                        })
-                      }
-                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
-                    >
-                      <option value="production">Producción (pagos reales)</option>
-                      <option value="sandbox">Sandbox (pruebas)</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
-                    <span className="text-sm">Estado</span>
-                    {pagosInfo.talo.configured ? (
-                      <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
-                        Configurado
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-xs font-semibold text-yellow-300">
-                        Falta configurar
-                      </span>
-                    )}
-                  </div>
-
-                  {pagosTaloTestOk === true && (
-                    <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-300">
-                      Conexión con Talo verificada correctamente.
-                    </div>
-                  )}
-
-                  {pagosTaloError && (
-                    <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                      {pagosTaloError}
-                    </p>
-                  )}
-
-                  <div className="flex gap-3">
-                    <button
-                      type="submit"
-                      disabled={pagosTaloLoading}
-                      className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black hover:bg-white/90 disabled:opacity-50"
-                    >
-                      {pagosTaloLoading ? "Guardando..." : "Guardar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleTestTaloPagos}
-                      disabled={pagosTaloTestLoading || !pagosInfo.talo.configured}
-                      className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold hover:bg-white/5 disabled:opacity-50"
-                    >
-                      {pagosTaloTestLoading ? "Probando..." : "Probar"}
-                    </button>
-                  </div>
-                </form>
+              )}
+              {pagosInfo?.modo?.sandbox && (
+                <p className="mt-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+                  <strong>Modo prueba:</strong> la página muestra &quot;MODO PRUEBA&quot; y no se cobra de verdad. Para
+                  vender, conectá la cuenta real de Mercado Pago.
+                </p>
+              )}
+              {pagosInfo?.modo?.sinMedios && (
+                <p className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                  <strong>Todavía no se puede cobrar:</strong> nadie puede comprar hasta que conectes Mercado Pago.
+                </p>
               )}
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <h2 className="mb-2 text-base font-bold">Tarjeta — Mercado Pago</h2>
-              <p className="mb-4 text-sm text-white/60">
-                Los compradores pagan con tarjeta, débito o saldo de Mercado Pago.
-              </p>
+            {pagosInfo === null ? (
+              <p className="text-sm text-white/40">Cargando…</p>
+            ) : (
+              <ConectarMercadoPago info={pagosInfo.mp} onSaved={recargarEstadoPagos} onToast={showToast} />
+            )}
 
-              <div className="mb-5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
-                <p className="font-semibold">¿Dónde lo encuentro?</p>
-                <p className="mt-1 text-blue-100/90">
-                  Entrá a{" "}
-                  <a
-                    href="https://www.mercadopago.com.ar/developers/panel/app"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline"
-                  >
-                    mercadopago.com.ar/developers
-                  </a>{" "}
-                  → Tu app → Credenciales de producción (o de prueba) → Access Token
-                </p>
-                <p className="mt-2 text-xs text-blue-100/80">
-                  La primera vez, configurá el webhook en MP con la URL de abajo (evento: Pagos).
-                </p>
+            <details className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <summary className="cursor-pointer text-base font-bold">Opciones avanzadas</summary>
+              <p className="mt-1 text-sm text-white/55">Transferencias y herramientas para probar antes de vender. No hace falta tocarlas para cobrar.</p>
+              <div className="mt-5 space-y-6">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                  <h2 className="mb-2 text-base font-bold">Transferencia con Talo (opcional)</h2>
+                  <p className="mb-4 text-sm text-white/60">
+                    Suma el pago por transferencia. Los datos se copian de la cuenta de Talo con el mismo nombre que figura ahí.
+                  </p>
+
+                  <div className="mb-5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
+                    <p className="font-semibold">¿Dónde las encuentro?</p>
+                    <p className="mt-1 text-blue-100/90">
+                      Entrá a{" "}
+                      <a
+                        href="https://app.talo.com.ar"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        app.talo.com.ar
+                      </a>{" "}
+                      → Usuario → Credenciales
+                    </p>
+                  </div>
+
+                  {pagosInfo === null ? (
+                    <p className="text-sm text-white/40">Cargando...</p>
+                  ) : (
+                    <form onSubmit={handleSaveTaloPagos} className="space-y-4">
+                      <label className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
+                        <span className="text-sm">Aceptar transferencias (Talo)</span>
+                        <input
+                          type="checkbox"
+                          checked={pagosTaloForm.enabled}
+                          onChange={(e) =>
+                            setPagosTaloForm({ ...pagosTaloForm, enabled: e.target.checked })
+                          }
+                          className="h-4 w-4"
+                        />
+                      </label>
+
+                      <Field
+                        label="User ID"
+                        value={pagosTaloForm.userId}
+                        onChange={(v) => setPagosTaloForm({ ...pagosTaloForm, userId: v })}
+                      />
+                      <Field
+                        label="Client ID"
+                        value={pagosTaloForm.clientId}
+                        onChange={(v) => setPagosTaloForm({ ...pagosTaloForm, clientId: v })}
+                      />
+                      <div>
+                        <label className="mb-1 block text-sm text-white/60">Client Secret</label>
+                        <input
+                          type="password"
+                          value={pagosTaloForm.clientSecret}
+                          onChange={(e) =>
+                            setPagosTaloForm({ ...pagosTaloForm, clientSecret: e.target.value })
+                          }
+                          placeholder={
+                            pagosInfo.talo.hasSecret
+                              ? "Dejá vacío para mantener el actual"
+                              : "Pegá el Client Secret"
+                          }
+                          className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm text-white/60">Tipo de cobro</label>
+                        <select
+                          value={pagosTaloForm.environment}
+                          onChange={(e) =>
+                            setPagosTaloForm({
+                              ...pagosTaloForm,
+                              environment: e.target.value as "sandbox" | "production",
+                            })
+                          }
+                          className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                        >
+                          <option value="production">Cobros reales</option>
+                          <option value="sandbox">Prueba (no cobra de verdad)</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
+                        <span className="text-sm">Estado</span>
+                        {pagosInfo.talo.configured ? (
+                          <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
+                            Conectado
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-xs font-semibold text-yellow-300">
+                            Sin conectar
+                          </span>
+                        )}
+                      </div>
+
+                      {pagosTaloTestOk === true && (
+                        <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-300">
+                          Cuenta de Talo conectada.
+                        </div>
+                      )}
+
+                      {pagosTaloError && (
+                        <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                          {pagosTaloError}
+                        </p>
+                      )}
+
+                      <div className="flex gap-3">
+                        <button
+                          type="submit"
+                          disabled={pagosTaloLoading}
+                          className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black hover:bg-white/90 disabled:opacity-50"
+                        >
+                          {pagosTaloLoading ? "Guardando..." : "Guardar"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleTestTaloPagos}
+                          disabled={pagosTaloTestLoading || !pagosInfo.talo.configured}
+                          className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold hover:bg-white/5 disabled:opacity-50"
+                        >
+                          {pagosTaloTestLoading ? "Verificando…" : "Verificar"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+
+                <details className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <summary className="cursor-pointer text-base font-bold">Probar una compra sin plata real</summary>
+                  <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-white/70">
+                    <li>
+                      En{" "}
+                      <a href="https://www.mercadopago.com.ar/developers/panel/app" target="_blank" rel="noreferrer" className="underline">
+                        Mercado Pago → Tus integraciones
+                      </a>{" "}
+                      → tu aplicación, elegí <strong>Prueba</strong> en el selector de arriba y copiá la clave de{" "}
+                      <strong>Credenciales</strong>.
+                    </li>
+                    <li>Pegala arriba y tocá Guardar y verificar: tiene que decir &quot;Cuenta de prueba conectada&quot;.</li>
+                    <li>
+                      Comprá en la página y pagá con <strong>Tarjeta</strong>, sin iniciar sesión en Mercado Pago (usá una
+                      ventana de incógnito).
+                    </li>
+                    <li>
+                      Tarjeta de prueba: Visa <code>4509 9535 6623 3704</code> · código <code>123</code> · vence{" "}
+                      <code>11/30</code> · DNI <code>12345678</code>.
+                    </li>
+                    <li>
+                      Nombre del titular: <code>APRO</code> = pago aprobado · <code>OTHE</code> = pago rechazado.
+                    </li>
+                    <li>
+                      Cuando Mercado Pago pida un mail, usá uno terminado en <code>@testuser.com</code> (por ejemplo{" "}
+                      <code>comprador@testuser.com</code>). Con otro mail el pago de prueba falla.
+                    </li>
+                    <li>Al terminar: Reiniciar ventas en la fiesta y pegar la clave de la cuenta real.</li>
+                  </ol>
+                </details>
+
+                <ChecklistPruebas />
               </div>
-
-              {pagosInfo === null ? (
-                <p className="text-sm text-white/40">Cargando...</p>
-              ) : (
-                <form onSubmit={handleSaveMpPagos} className="space-y-4">
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
-                    <span className="text-sm">Ofrecer tarjeta (Mercado Pago)</span>
-                    <input
-                      type="checkbox"
-                      checked={pagosMpForm.enabled}
-                      onChange={(e) =>
-                        setPagosMpForm({ ...pagosMpForm, enabled: e.target.checked })
-                      }
-                      className="h-4 w-4"
-                    />
-                  </label>
-
-                  <div>
-                    <label className="mb-1 block text-sm text-white/60">Access Token</label>
-                    <input
-                      type="password"
-                      value={pagosMpForm.accessToken}
-                      onChange={(e) =>
-                        setPagosMpForm({ ...pagosMpForm, accessToken: e.target.value })
-                      }
-                      placeholder={
-                        pagosInfo.mp.hasToken
-                          ? "Dejá vacío para mantener el actual"
-                          : "Pegá el Access Token"
-                      }
-                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-1 block text-sm text-white/60">Ambiente</label>
-                    <select
-                      value={pagosMpForm.environment}
-                      onChange={(e) =>
-                        setPagosMpForm({
-                          ...pagosMpForm,
-                          environment: e.target.value as "sandbox" | "production",
-                        })
-                      }
-                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
-                    >
-                      <option value="production">Producción (pagos reales)</option>
-                      <option value="sandbox">Prueba (sandbox)</option>
-                    </select>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 px-4 py-3">
-                    <p className="mb-1 text-xs text-white/50">Webhook (copiar en panel de MP)</p>
-                    <p className="break-all font-mono text-xs text-white/70">
-                      {pagosInfo.mp.webhookUrl}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
-                    <span className="text-sm">Estado</span>
-                    {pagosInfo.mp.configured ? (
-                      <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
-                        Configurado
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-xs font-semibold text-yellow-300">
-                        Falta configurar
-                      </span>
-                    )}
-                  </div>
-
-                  {pagosMpTestOk === true && (
-                    <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-300">
-                      Conexión con Mercado Pago verificada correctamente.
-                    </div>
-                  )}
-
-                  {pagosMpError && (
-                    <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                      {pagosMpError}
-                    </p>
-                  )}
-
-                  <div className="flex gap-3">
-                    <button
-                      type="submit"
-                      disabled={pagosMpLoading}
-                      className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black hover:bg-white/90 disabled:opacity-50"
-                    >
-                      {pagosMpLoading ? "Guardando..." : "Guardar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleTestMpPagos}
-                      disabled={pagosMpTestLoading || !pagosInfo.mp.configured}
-                      className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold hover:bg-white/5 disabled:opacity-50"
-                    >
-                      {pagosMpTestLoading ? "Probando..." : "Probar"}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
+            </details>
           </div>
         )}
 
@@ -1650,41 +2088,41 @@ export function AdminDashboard() {
         {tab === "seguridad" && (
           <div className="max-w-xl space-y-6">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <h2 className="mb-2 text-base font-bold">Acceso al sistema</h2>
+              <h2 className="mb-2 text-base font-bold">Quién puede entrar</h2>
               <p className="mb-4 text-sm text-white/60">
-                PIN Admin: panel completo. PIN Scanner: solo validar entradas en la puerta.
+                Hay dos PIN: el del organizador abre este panel completo; el de puerta solo sirve para validar entradas.
               </p>
               {security === null ? (
                 <p className="text-sm text-white/40">Verificando…</p>
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
-                    <span className="text-sm">PIN Admin</span>
+                    <span className="text-sm">PIN del organizador</span>
                     {security.adminPinDebil ? (
                       <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs font-semibold text-red-400">
-                        Cambiá el PIN de prueba
+                        Es el de prueba: cambialo
                       </span>
                     ) : (
                       <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
-                        OK
+                        Seguro
                       </span>
                     )}
                   </div>
                   <div className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-3">
-                    <span className="text-sm">PIN Scanner</span>
+                    <span className="text-sm">PIN de puerta</span>
                     {security.scannerPinDebil ? (
                       <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs font-semibold text-red-400">
-                        Cambiá el PIN de prueba
+                        Es el de prueba: cambialo
                       </span>
                     ) : (
                       <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
-                        OK
+                        Seguro
                       </span>
                     )}
                   </div>
                   {security.ambosIguales && !security.adminPinDebil && (
                     <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
-                      Usá PINs distintos: uno para vos (admin) y otro para la puerta (scanner).
+                      Los dos PIN son iguales. Usá uno para vos y otro distinto para la puerta.
                     </div>
                   )}
                 </div>
@@ -1698,20 +2136,20 @@ export function AdminDashboard() {
                 }}
                 className="mt-5 w-full rounded-xl bg-white py-3 text-sm font-semibold text-black hover:bg-white/90"
               >
-                Cambiar PINs
+                Cambiar los PIN
               </button>
             </div>
 
             {pinChangeOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
                 <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#12121a] p-6">
-                  <h2 className="mb-2 text-lg font-bold">Cambiar PINs</h2>
+                  <h2 className="mb-2 text-lg font-bold">Cambiar los PIN</h2>
                   <p className="mb-4 text-sm text-white/60">
-                    Al guardar, vas a tener que ingresar de nuevo con el PIN admin nuevo.
+                    Al guardar se cierra la sesión: volvé a entrar con tu PIN nuevo. Anotalos en un lugar seguro.
                   </p>
                   <form onSubmit={handleChangePins} className="space-y-4">
                     <div>
-                      <label className="mb-1 block text-sm text-white/60">PIN admin actual</label>
+                      <label className="mb-1 block text-sm text-white/60">Tu PIN actual</label>
                       <input
                         type="password"
                         inputMode="numeric"
@@ -1722,7 +2160,7 @@ export function AdminDashboard() {
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm text-white/60">PIN admin nuevo</label>
+                      <label className="mb-1 block text-sm text-white/60">PIN nuevo del organizador</label>
                       <input
                         type="password"
                         inputMode="numeric"
@@ -1732,7 +2170,7 @@ export function AdminDashboard() {
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm text-white/60">Confirmar PIN admin nuevo</label>
+                      <label className="mb-1 block text-sm text-white/60">Repetí el PIN del organizador</label>
                       <input
                         type="password"
                         inputMode="numeric"
@@ -1742,7 +2180,7 @@ export function AdminDashboard() {
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm text-white/60">PIN scanner nuevo (puerta)</label>
+                      <label className="mb-1 block text-sm text-white/60">PIN nuevo de puerta</label>
                       <input
                         type="password"
                         inputMode="numeric"
@@ -1752,7 +2190,7 @@ export function AdminDashboard() {
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm text-white/60">Confirmar PIN scanner nuevo</label>
+                      <label className="mb-1 block text-sm text-white/60">Repetí el PIN de puerta</label>
                       <input
                         type="password"
                         inputMode="numeric"
@@ -1766,7 +2204,7 @@ export function AdminDashboard() {
                         {pinChangeError}
                       </p>
                     )}
-                    <p className="text-xs text-white/40">Mínimo 6 caracteres. Admin y scanner deben ser distintos.</p>
+                    <p className="text-xs text-white/40">Al menos 6 números cada uno, y distintos entre sí.</p>
                     <div className="flex gap-3 pt-2">
                       <button
                         type="button"

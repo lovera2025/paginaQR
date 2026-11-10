@@ -7,16 +7,99 @@
   --foreground: #f5f5f7;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
+  overflow-x: hidden;
+}
+
+@layer components {
+  /* Botón principal dorado */
+  .btn-oro {
+    @apply inline-flex items-center justify-center gap-2 rounded-full font-display font-extrabold text-tinta transition;
+    background: linear-gradient(135deg, #f0d389 0%, #d4a853 55%, #b8862e 100%);
+    box-shadow: 0 14px 40px rgba(212, 168, 83, 0.35);
+  }
+  .btn-oro:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+  .btn-oro:disabled {
+    @apply cursor-not-allowed opacity-50;
+    transform: none;
+  }
+
+  .btn-borde {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-white/15 font-semibold text-white transition hover:border-oro/60 hover:text-oro-claro;
+  }
+
+  .tarjeta {
+    @apply rounded-2xl border border-white/10 bg-white/[0.04];
+  }
+
+  .campo {
+    @apply h-12 w-full rounded-2xl border border-white/15 bg-black/40 px-4 text-[15px] text-white outline-none transition placeholder:text-white/30 focus:border-oro/70 focus:ring-2 focus:ring-oro/20;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.3em] text-white/60;
+  }
 }
 
 @layer utilities {
+  /* Righteous tiene un solo peso: evitar la "negrita falsa" que el navegador inventa con font-bold/extrabold. */
+  .font-display {
+    font-synthesis: none;
+  }
+
   .text-balance {
     text-wrap: balance;
   }
-  .gradient-text {
-    @apply bg-clip-text text-transparent bg-gradient-to-r;
+
+  /* Partículas doradas de fondo */
+  .bg-particulas {
+    background-image: radial-gradient(circle, #d4a853 1px, transparent 1.6px),
+      radial-gradient(circle, #f0d389 0.8px, transparent 1.4px),
+      radial-gradient(circle, #d4a853 0.6px, transparent 1.2px);
+    background-size: 160px 180px, 240px 210px, 110px 130px;
+    background-position: 0 0, 60px 40px, 30px 90px;
+  }
+
+  .vip-foil {
+    background: linear-gradient(110deg, #120e04 0%, #241a07 35%, #4a3810 50%, #241a07 65%, #120e04 100%);
+    background-size: 200% 100%;
+  }
+
+  .texto-oro {
+    background: linear-gradient(135deg, #f7e2a6 0%, #d4a853 45%, #b8862e 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  .safe-bottom {
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

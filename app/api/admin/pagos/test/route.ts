@@ -16,10 +16,22 @@ export async function POST(request: Request) {
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
+    const esPrueba = result.tokenTipo === "prueba";
+    const noCoincide =
+      (result.environment === "sandbox" && result.tokenTipo === "produccion") ||
+      (result.environment === "production" && esPrueba);
     return NextResponse.json({
       ok: true,
-      message: "Conexión con Mercado Pago OK",
+      message: esPrueba
+        ? "Cuenta de prueba conectada · no se cobra de verdad"
+        : result.tokenTipo === "produccion"
+          ? "Cuenta conectada · cobros reales"
+          : "Cuenta conectada",
       environment: result.environment,
+      tokenTipo: result.tokenTipo,
+      advertencia: noCoincide
+        ? "La clave y el tipo de cobro guardado no coinciden. Volvé a pegar la clave y tocá Guardar y verificar."
+        : null,
     });
   }
 

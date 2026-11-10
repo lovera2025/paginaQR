@@ -1,6 +1,8 @@
 export function getAppMode(): "mock" | "development" | "production" {
-  const mode = process.env.APP_MODE ?? "mock";
-  if (mode === "development" || mode === "production") return mode;
+  const mode = process.env.APP_MODE?.trim();
+  if (mode === "development" || mode === "production" || mode === "mock") return mode;
+  // Sin APP_MODE en el deploy de producción de Vercel: nunca caer en simulación (entradas gratis).
+  if (process.env.VERCEL_ENV === "production") return "production";
   return "mock";
 }
 
