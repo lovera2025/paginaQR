@@ -1,62 +1,59 @@
-# Deploy en Vercel
+# Publicación en Vercel
 
-## Antes de lanzar (nov 2026)
+> Actualizado el 10 nov 2026 (lanzamiento).
 
-1. Variables del proyecto Supabase nuevo `junior-eventos` (abajo) y **`AUTH_SECRET`** (texto largo al azar: firma la sesión del staff).
-2. `APP_MODE=production` (aunque falte, en el deploy de producción ya no se simulan pagos).
-3. **Borrar `MP_ACCESS_TOKEN`** de las variables de Vercel: el token de Mercado Pago se carga desde Admin → Pagos
-   (primero el de prueba, después el real). Si queda el token productivo viejo en Vercel, se usa cuando la tabla de pagos está vacía.
-4. Merge de `rediseno-recepciones` a `main` → Vercel despliega solo.
-5. En Mercado Pago (tu app → Webhooks): `https://<tu-dominio>/api/webhook-mp`, evento **Pagos**, modo prueba y productivo.
+## Dónde está
 
-## Variables de entorno (Production + Preview)
+| Qué | Valor |
+|-----|-------|
+| Proyecto Vercel | `jreventos-entradas` (equipo `maximiliano-loveras-projects`, plan Hobby) |
+| Dirección pública | **https://junioreventos.vercel.app** |
+| También responden | `junior-eventos.vercel.app`, `jreventos-entradas.vercel.app` |
+| Repositorio | `lovera2025/paginaQR`, rama `main` (cada merge a `main` publica solo) |
+| Base de datos | Supabase `junior-eventos` (ref `jllfdxxleszeimsxruva`) |
 
-Copiá los mismos valores de tu `.env.local` en Vercel → Project → Settings → Environment Variables:
+## Ojo con el plan gratis
 
-| Variable | Obligatoria |
-|----------|-------------|
-| `APP_MODE` | `production` en Vercel (en local: `development`) |
-| `AUTH_SECRET` | Sí (firma la sesión del staff; si falta se usa la service role) |
-| `ADMIN_PIN` | Sí |
-| `SCANNER_PIN` | Sí |
-| `SUPABASE_URL` | Sí |
-| `NEXT_PUBLIC_SUPABASE_URL` | Sí |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Sí (Realtime en admin) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Sí (secreto) |
-| `RESEND_API_KEY` | Sí (mail con QR al comprar) |
-| `RESEND_FROM` | `JR Eventos <onboarding@resend.dev>` (prueba) |
-| `NEXT_PUBLIC_APP_URL` | `https://jreventos-entradas.vercel.app` |
+El plan Hobby de Vercel es, por sus condiciones, para uso **no comercial**. Se decidió publicar igual
+(10 nov 2026) sabiendo el riesgo: si Vercel lo detecta puede pedir pasar a Pro (US$ 20 por mes) o pausar
+el proyecto. Si pasa, la salida es subir el plan del mismo proyecto: no cambia la dirección ni los datos.
 
-**No** subas `.env.local` a GitHub.
+Alternativa evaluada y descartada: Netlify gratis permite vender pero tiene un tope de 300 créditos por
+mes; al gastarlos pausa la web hasta el mes siguiente (o hasta pagar US$ 9 por mes).
 
-### Supabase — migración email (una vez)
+## Variables de entorno (solo Production)
 
-En Supabase → SQL Editor, ejecutá `supabase/migrations/email_sent_at.sql`:
+| Variable | Para qué |
+|----------|----------|
+| `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL` | Proyecto `junior-eventos` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clave pública (actualización en vivo del panel) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Clave secreta del servidor |
+| `AUTH_SECRET` | Firma la sesión del staff (texto largo al azar) |
+| `APP_MODE` | `production` |
+| `NEXT_PUBLIC_APP_URL` | `https://junioreventos.vercel.app` (arma la vuelta de Mercado Pago y el aviso de pagos) |
+| `ADMIN_PIN`, `SCANNER_PIN` | Solo de respaldo: los PIN reales se guardan en la base desde Panel → Seguridad |
 
-```sql
-ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMPTZ;
-```
+No van en Vercel: la clave de Mercado Pago (se carga en Panel → Pagos) ni las de Resend (sin mail).
 
-Migración estados evento (`supabase/migrations/evento_estado.sql`):
+Para cambiarlas: Vercel → proyecto → Settings → Environment Variables, y después **Redeploy**.
+Si cambia la dirección pública, actualizar `NEXT_PUBLIC_APP_URL`, redesplegar y volver a copiar la
+dirección del aviso de pagos en Mercado Pago (Panel → Pagos → paso 3).
 
-```sql
-ALTER TABLE eventos ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'borrador';
-ALTER TABLE eventos DROP CONSTRAINT IF EXISTS eventos_estado_check;
-ALTER TABLE eventos ADD CONSTRAINT eventos_estado_check
-  CHECK (estado IN ('borrador', 'venta', 'finalizado'));
-```
+## Publicar un cambio
 
-Después de agregar variables → **Redeploy**.
+1. Trabajar en una rama, `npm test` y `npm run lint`.
+2. Pull request a `main` (Vercel arma una vista previa; ahí corre con datos de ejemplo, sin la base real).
+3. Merge → Vercel publica en producción en 1 o 2 minutos.
 
-## Probar la demo
+Vuelta atrás: Vercel → Deployments → el anterior → **Instant Rollback**.
 
-| Ruta | PIN |
-|------|-----|
-| `/` | — |
-| `/comprar` | — |
-| `/admin` | `1234` |
-| `/scanner` | `1234` |
+## Migraciones de la base
 
-Flujo: comprar → simular pago → **mail con QR** → `/compra/exito` → scanner (verde) → admin (contadores).
+Están en `supabase/migrations/`. `npm run verify:supabase` avisa si falta alguna. La última es
+`2026_11_mensaje_proximamente.sql`.
 
-Mercado Pago: pendiente — hoy la venta pública usa **pago simulado** (`APP_MODE=development`, sin `MP_ACCESS_TOKEN`).
+## Probar en la compu sin pisar otro servidor
+
+`NEXT_DIST_DIR=.next-preview next dev -p 3105` levanta un segundo servidor en la misma carpeta
+(configuración `dev-aislado` en `.claude/launch.json`). Next agrega esa carpeta a `tsconfig.json`:
+no commitear ese cambio.

@@ -153,6 +153,7 @@ export function CompraEntradas({
   whatsapp = "",
   fiestaProximamente = false,
   medios = [],
+  sinCobros = false,
 }: {
   evento: Evento;
   tipos: TipoEntradaDisponible[];
@@ -161,6 +162,11 @@ export function CompraEntradas({
   fiestaProximamente?: boolean;
   /** Medios de pago activos (para no prometer uno que no está). */
   medios?: PaymentMethod[];
+  /**
+   * El organizador todavía no conectó cómo cobrar: se ven las entradas y sus precios, pero el
+   * formulario aparece solo cuando conecta su cuenta (no hace falta tocar nada más).
+   */
+  sinCobros?: boolean;
 }) {
   const router = useRouter();
   const visibles = tipos.filter((t) => t.activo);
@@ -245,7 +251,7 @@ export function CompraEntradas({
       <div className="flex flex-col gap-3" role="radiogroup" aria-label="Tipo de entrada">
         <div className="flex items-baseline justify-between">
           <h2 className="font-display text-[22px] font-extrabold">
-            {primero ? (
+            {primero && !sinCobros ? (
               <>
                 Elegí tu <span className="text-oro">entrada</span>
               </>
@@ -255,7 +261,7 @@ export function CompraEntradas({
               </>
             )}
           </h2>
-          {primero && <span className="text-xs text-white/55">1 tipo por compra</span>}
+          {primero && !sinCobros && <span className="text-xs text-white/55">1 tipo por compra</span>}
         </div>
         {visibles.map((t) =>
           t.fase === "proximamente" ? (
@@ -275,7 +281,26 @@ export function CompraEntradas({
         )}
       </div>
 
-      {primero ? (
+      {primero && sinCobros ? (
+        <div className="tarjeta flex flex-col items-center gap-3 p-5 text-center">
+          <p className="font-display text-lg font-extrabold">La compra online se habilita muy pronto</p>
+          <p className="whitespace-pre-line text-sm text-white/60">
+            {getMensajeProximamente(evento) ??
+              "Estamos terminando de preparar la venta. Volvé a entrar en unos días para comprar tu entrada."}
+          </p>
+          {waAvisame && (
+            <a
+              href={waAvisame}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-12 items-center gap-2 rounded-full bg-[#25d366] px-5 text-sm font-bold text-[#06240f]"
+            >
+              <IconWhatsapp size={18} />
+              Avisame cuando abra
+            </a>
+          )}
+        </div>
+      ) : primero ? (
         <form ref={formRef} onSubmit={handleSubmit} className="flex flex-col gap-3.5">
           <div className="tarjeta flex items-center justify-between px-4 py-3">
             <span className="text-sm font-semibold">Cantidad</span>

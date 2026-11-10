@@ -6,7 +6,7 @@ import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } fro
 import type { EventoCatalogo } from "@/types";
 import { ddmm, diaCorto, formatPrecio } from "@/lib/utils";
 
-function badgeDe(item: EventoCatalogo, proxima: boolean): { texto: string; clase: string } | null {
+function badgeDe(item: EventoCatalogo, proxima: boolean, sinCobros: boolean): { texto: string; clase: string } | null {
   const { evento, disponibles, anticipadaHasta } = item;
   if (evento.estado === "pausado") return { texto: "POSTERGADA", clase: "bg-amber-400 text-tinta" };
   if (item.proximamente)
@@ -14,6 +14,8 @@ function badgeDe(item: EventoCatalogo, proxima: boolean): { texto: string; clase
       texto: item.abreEl ? `PRÓXIMAMENTE · ABRE ${ddmm(item.abreEl)}` : "PRÓXIMAMENTE",
       clase: "border border-white/40 bg-noche/75 text-white backdrop-blur",
     };
+  // El organizador todavía no conectó los cobros: se ve el precio, pero no se promete compra inmediata.
+  if (sinCobros) return { texto: "MUY PRONTO", clase: "border border-oro/60 bg-noche/75 text-oro-claro backdrop-blur" };
   if (disponibles <= 0) return { texto: "AGOTADO", clase: "bg-white/85 text-tinta" };
   if (evento.capacidad > 0 && disponibles / evento.capacidad < 0.15)
     return { texto: "ÚLTIMAS ENTRADAS", clase: "bg-naranja text-tinta" };
@@ -27,14 +29,25 @@ function badgeDe(item: EventoCatalogo, proxima: boolean): { texto: string; clase
   return null;
 }
 
-export function FiestaCard({ item, index, proxima }: { item: EventoCatalogo; index: number; proxima: boolean }) {
+export function FiestaCard({
+  item,
+  index,
+  proxima,
+  sinCobros = false,
+}: {
+  item: EventoCatalogo;
+  index: number;
+  proxima: boolean;
+  /** Todavía no hay cómo pagar (el organizador no conectó su cuenta). */
+  sinCobros?: boolean;
+}) {
   const { evento, precioDesde } = item;
   const reduce = useReducedMotion();
   const mx = useMotionValue(0);
   const my = useMotionValue(0);
   const rotateX = useSpring(useTransform(my, [-0.5, 0.5], [7, -7]), { stiffness: 200, damping: 18 });
   const rotateY = useSpring(useTransform(mx, [-0.5, 0.5], [-9, 9]), { stiffness: 200, damping: 18 });
-  const badge = badgeDe(item, proxima);
+  const badge = badgeDe(item, proxima, sinCobros);
   const agotado = item.disponibles <= 0;
 
   function onMove(e: React.PointerEvent<HTMLAnchorElement>) {

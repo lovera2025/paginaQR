@@ -115,7 +115,10 @@ describe("login del staff en producción", () => {
     process.env.APP_MODE = "production";
     const res = await login("1234");
     expect(res.status).toBe(503);
-    expect((await res.json()).error).toMatch(/ADMIN_PIN/);
+    // El mensaje es para quien intenta entrar: sin nombres de variables ni del hosting.
+    const { error } = await res.json();
+    expect(error).toMatch(/no hay PIN seguros/);
+    expect(error).not.toMatch(/ADMIN_PIN|Vercel/);
   });
 
   it("con PIN de jefe seguro pero el de puerta débil, el de puerta no entra", async () => {

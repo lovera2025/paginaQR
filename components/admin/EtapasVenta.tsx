@@ -17,6 +17,8 @@ interface Editor {
   /** Se ofrece mientras el tipo (o la fiesta entera) está en Próximamente. */
   opcionPrecio: boolean;
   mostrarPrecio: boolean;
+  /** Hasta cuándo se vende (solo si el tipo ya abrió). Vacío = hasta el día de la fiesta. */
+  ventaHasta: string;
 }
 
 interface Props {
@@ -100,7 +102,14 @@ export function EtapasVenta({ evento, version, totalFiestas, onToast, onChanged,
       ventaDesde: t.ventaDesde ? isoToDatetimeLocalAr(t.ventaDesde) : "",
       opcionPrecio: sinAbrir || fiestaProx,
       mostrarPrecio: t.mostrarPrecioPrevio,
+      ventaHasta: t.ventaHasta ? isoToDatetimeLocalAr(t.ventaHasta) : "",
     });
+  }
+
+  /** El tipo que está programado para abrir justo cuando cierra este (ej. General tras la Anticipada). */
+  function siguienteEtapa(t: TipoEntradaDisponible): TipoEntradaDisponible | null {
+    if (!t.ventaHasta) return null;
+    return activos.find((x) => x.id !== t.id && x.ventaDesde === t.ventaHasta) ?? null;
   }
 
   async function guardarEditor(e: React.FormEvent) {
@@ -121,7 +130,18 @@ export function EtapasVenta({ evento, version, totalFiestas, onToast, onChanged,
       cambio.ventaDesde = editor.apertura === "fecha" ? `${editor.ventaDesde}:00-03:00` : null;
     }
     if (editor.opcionPrecio) cambio.mostrarPrecioPrevio = editor.mostrarPrecio;
-    if (await aplicar(editor.tipo, cambio, `${editor.tipo.nombre} actualizada`)) setEditor(null);
+
+    // Cierre de la venta: solo se manda si lo cambiaron (con "aplicar a todas" pisa la fecha de cada fiesta).
+    const cierreAntes = editor.tipo.ventaHasta ? isoToDatetimeLocalAr(editor.tipo.ventaHasta) : "";
+    const cambioCierre = !editor.apertura && editor.ventaHasta !== cierreAntes;
+    const nuevoCierre = editor.ventaHasta ? `${editor.ventaHasta}:00-03:00` : null;
+    const siguiente = cambioCierre && nuevoCierre ? siguienteEtapa(editor.tipo) : null;
+    if (cambioCierre) cambio.ventaHasta = nuevoCierre;
+
+    if (!(await aplicar(editor.tipo, cambio, `${editor.tipo.nombre} actualizada`))) return;
+    // La etapa siguiente estaba programada para abrir al cierre de esta: se mueve con ella.
+    if (siguiente) await aplicar(siguiente, { ventaDesde: nuevoCierre }, `${siguiente.nombre} ahora abre cuando cierra ${editor.tipo.nombre}`);
+    setEditor(null);
   }
 
   const activos = (tipos ?? []).filter((t) => t.activo);
@@ -225,7 +245,7 @@ export function EtapasVenta({ evento, version, totalFiestas, onToast, onChanged,
                     onClick={() => abrirEditor(t)}
                     className="h-9 rounded-lg border border-white/20 text-xs font-semibold hover:bg-white/5 disabled:opacity-50"
                   >
-                    {sinAbrir ? "Cambiar precio o fecha" : "Cambiar precio"}
+                    {sinAbrir ? "Cambiar precio o fecha" : "Cambiar precio o cierre"}
                   </button>
                   {sinAbrir && (
                     <button
@@ -341,6 +361,27 @@ export function EtapasVenta({ evento, version, totalFiestas, onToast, onChanged,
                   </label>
                 )}
               </>
+            )}
+            {!editor.apertura && (
+              <label className="flex flex-col gap-1 text-xs text-white/60">
+                Se vende hasta (vacío = hasta el día de la fiesta)
+                <input
+                  type="datetime-local"
+                  value={editor.ventaHasta}
+                  onChange={(e) => setEditor({ ...editor, ventaHasta: e.target.value })}
+                  className="campo [color-scheme:dark]"
+                />
+                {siguienteEtapa(editor.tipo) && (
+                  <span className="text-[11px] text-white/45">
+                    {siguienteEtapa(editor.tipo)?.nombre} abre sola cuando cierra esta: si cambiás la fecha, se mueve también.
+                  </span>
+                )}
+                {enTodas && otras > 0 && (
+                  <span className="text-[11px] text-amber-200/80">
+                    Con &quot;aplicar a las otras fiestas&quot;, todas cierran ese mismo día.
+                  </span>
+                )}
+              </label>
             )}
             {editor.opcionPrecio && (
               <label className="flex cursor-pointer items-center gap-2.5 text-sm text-white/80">

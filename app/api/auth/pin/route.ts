@@ -37,8 +37,9 @@ export async function POST(request: Request) {
   if (!adminValido && !scannerValido) {
     return NextResponse.json(
       {
-        error:
-          "Falta configurar PINs seguros: cargá ADMIN_PIN y SCANNER_PIN (6 o más dígitos, distintos) en Vercel y volvé a desplegar.",
+        // Para quien administra: los PIN se definen en Panel → Seguridad (desde la compu de prueba la
+        // primera vez) o con ADMIN_PIN y SCANNER_PIN en el hosting. Ver docs/VERCEL-DEPLOY.md.
+        error: "Todavía no hay PIN seguros configurados para entrar. Avisale a quien administra la página.",
       },
       { status: 503 }
     );
