@@ -181,6 +181,21 @@ describe("link de Mercado Pago", () => {
     expect(body.binary_mode).toBe(true);
     expect(body.payment_methods.excluded_payment_types.map((p) => p.id)).toEqual(["ticket", "atm"]);
     expect(body.items[0].unit_price).toBe(o.precioUnitario);
+    expect(body).toMatchObject({ auto_return: "approved", notification_url: "https://app.test/api/webhook-mp" });
+  });
+
+  it("en pruebas locales no manda vuelta automática ni aviso (MP no llega a la PC)", () => {
+    const o = orden({ createdAt: T0.toISOString() });
+    const body = preferenciaBody(o, evento(), "http://localhost:3100", "http://localhost:3100/api/webhook-mp", T0);
+    expect(body).not.toHaveProperty("auto_return");
+    expect(body).not.toHaveProperty("notification_url");
+    expect(body.back_urls.success).toContain("http://localhost:3100/compra/exito?orden=");
+  });
+
+  it("con token de prueba no manda el mail del comprador (MP lo rechaza si es una cuenta real)", () => {
+    const o = orden({ createdAt: T0.toISOString(), compradorEmail: "real@gmail.com" });
+    expect(preferenciaBody(o, evento(), "https://app.test", "https://app.test/w", T0)).toHaveProperty("payer.email", "real@gmail.com");
+    expect(preferenciaBody(o, evento(), "https://app.test", "https://app.test/w", T0, { prueba: true })).not.toHaveProperty("payer");
   });
 
   it("fecha con hora de Argentina", () => {

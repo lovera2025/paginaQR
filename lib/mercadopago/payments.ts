@@ -48,7 +48,9 @@ export async function processMpPayment(payment: MpPayment): Promise<ResultadoPag
 
   const orden = await getOrden(ordenId);
   if (!orden) return { error: "Orden no encontrada" };
-  const modo = payment.live_mode === false ? "sandbox" : payment.live_mode === true ? "produccion" : undefined;
+  // Con cuentas de prueba (vendedor y comprador de prueba) MP devuelve live_mode = true: solo
+  // live_mode = false asegura que es de prueba; si no, decide el ambiente cargado en Admin → Pagos.
+  const modo = payment.live_mode === false ? "sandbox" : undefined;
   const ref = `MP ${mpPaymentId} · compra ${ordenId.slice(0, 8)}`;
 
   if (orden.estado === "aprobado") {
@@ -85,7 +87,10 @@ export async function processMpPayment(payment: MpPayment): Promise<ResultadoPag
       await registrarActividad("pago", `${ref} → pago aprobado pero no se pudieron emitir las entradas: ${result.error}`);
       return { error: result.error, reintentar: true };
     }
-    await registrarActividad("pago", `${ref} → aprobado${modo === "sandbox" ? " (PRUEBA)" : ""}`);
+    // Si dos avisos llegan juntos (aviso de MP + pantalla de éxito), se anota una sola vez.
+    if (result.nueva) {
+      await registrarActividad("pago", `${ref} → aprobado${result.orden.modoPago === "sandbox" ? " (PRUEBA)" : ""}`);
+    }
     return { ok: true };
   }
 

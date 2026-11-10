@@ -1,10 +1,10 @@
 # PaginaQR / Junior Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: **9 noviembre 2026 (noche)** — Base real conectada y probada, `junior-eventos` movido a la organización `paginaqr-eventos`, **sin mail: las entradas se entregan en pantalla + PDF**, "Mis entradas" por dispositivo, aviso de mail mal escrito y contador de reserva. Rama `rediseno-recepciones` (sin push, sin deploy). **Objetivo antes de lanzar:** que cualquiera compre → pago aprobado → entradas y PDF disponibles, sin errores. Recién con eso verificado se lanza.
-> **Calendario:** 9 nov = día de pruebas. **10 nov = lanzamiento si todo sale bien** (solo con OK del usuario).
-> **Para retomar en un chat nuevo:** "leé `docs/CONTEXTO.md` y seguimos con lo pendiente" → ir a **Pendiente para retomar**.
-> **Dónde quedamos (cierre 9 nov noche):** todo commiteado en `rediseno-recepciones`, nada pusheado ni desplegado. `npm test` 99/99, lint y tipos OK. `.env.local` ya tiene la `service_role` y la web local usa la base real `junior-eventos` (migraciones al día). **Próximo paso: Mercado Pago de prueba (paso 4) y Vercel (paso 5).**
+> Última actualización: **9 noviembre 2026 (noche, cierre)** — Base real conectada y probada, **Mercado Pago de prueba funcionando** (pago aprobado → entradas), `junior-eventos` movido a la organización `paginaqr-eventos`, **sin mail: las entradas se entregan en pantalla + PDF**, "Mis entradas" por dispositivo, aviso de mail mal escrito y contador de reserva. Rama `rediseno-recepciones` (sin push, sin deploy). **Objetivo antes de lanzar:** que cualquiera compre → pago aprobado → entradas y PDF disponibles, sin errores.
+> **Calendario:** 9 nov = día de pruebas ✅. **10 nov = lanzamiento** (solo con OK del usuario): el usuario pidió armar el plan de lanzamiento.
+> **Para retomar en un chat nuevo:** "leé `docs/CONTEXTO.md` y seguimos con lo pendiente" → ir a **Pendiente para retomar** (checklist "Antes de lanzar").
+> **Dónde quedamos (cierre 9 nov noche):** todo commiteado en `rediseno-recepciones`, nada pusheado ni desplegado. `npm test` 105/105, lint y tipos OK. `.env.local` con la `service_role` y `NEXT_PUBLIC_APP_URL=http://localhost:3100`; la web local usa la base real y el token de MP **de prueba** (ambiente Prueba). **Próximo paso: plan de lanzamiento (Vercel → deploy → prueba pública → producción).**
 
 ## Sesión 9 nov (noche) — base real, sin mail, Mis entradas
 
@@ -18,6 +18,8 @@
 - **Contador de reserva** en la pantalla de pago ("Te guardamos tus entradas 09:58"); al llegar a cero, "Se terminó el tiempo" + "Elegir de nuevo".
 - **Fallas arregladas:** el scanner tiraba un error (y podía romper la página) al cambiar de fiesta o salir si la cámara no había arrancado (compu sin cámara, permiso negado); las lecturas de Supabase reintentan ante cortes de red momentáneos (el resumen del panel fallaba entero).
 - Probado en el navegador a 375 px y a 1280 px: portada, fiesta, compra, pago, éxito, Mis entradas.
+- **Mercado Pago de prueba funcionando** (ver "Cómo probar Mercado Pago" en Pendientes). Arreglos que salieron de la prueba: en localhost no se manda vuelta automática ni aviso (MP los rechaza); con token de prueba no se manda el mail del comprador (si es de una cuenta real, MP rechaza el pago); la compra de prueba quedaba marcada "producción" (MP devuelve `live_mode` = true con cuentas de prueba: ahora decide el ambiente de Admin → Pagos); el "→ aprobado" se anotaba dos veces en Actividad.
+- **Red:** la conexión de la PC con Supabase a veces tarda ~10 s en abrirse (`UND_ERR_CONNECT_TIMEOUT`). El cliente de Supabase (`lib/supabase/server.ts`) ahora reintenta lecturas y escrituras que no llegaron a salir; las escrituras que pudieron llegar no se repiten (no duplica compras). `NEXT_PUBLIC_APP_URL` local corregido a `:3100` (decía `:3000`).
 
 ### Ojo antes de lanzar
 - **El WhatsApp de contacto está vacío en la base real** (Admin → Apariencia / cada fiesta). Sin eso no aparecen los botones de anular, "pago sin cupo", "no encuentro mi entrada" ni el de la portada. Es parte del paso 7 (datos del jefe).
@@ -113,14 +115,24 @@
 
 ## Pendiente para retomar (en este orden)
 
-**Hoy 9 nov — pruebas**
-1. ~~Service role~~ ✅ (9 nov noche). 1b. ~~Migración~~ ✅. 2. ~~Conector de Supabase~~ ✅ (`junior-eventos` ahora está en la org `paginaqr-eventos`, que es la que ve el conector).
-3. ~~Primera vuelta con la base real~~ ✅ (por API y navegador). Falta: **cambiar los PINs en Admin → Seguridad** y probar la **cámara del scanner en un celular**.
-4. **Mercado Pago de prueba (vos + Claude):** developers.mercadopago.com → tu app → Cuentas de prueba: crear Vendedor y Comprador (Argentina). Pegar el Access Token del Vendedor en Admin → Pagos con ambiente "Prueba" → "Probar" debe decir token de PRUEBA. Comprar en incógnito logueado como Comprador de prueba: tarjeta con titular `APRO` (aprobada) y otra con `OTHE` (rechazada). **Probar también: primero `OTHE` y, en el mismo checkout, después `APRO` → tienen que salir las entradas.** Guía y tarjetas en Admin → Pagos. Usar el checklist de Admin → Pagos.
+**Hecho el 9 nov:** service role ✅, migración ✅, conector de Supabase ✅, primera vuelta con la base real ✅, **Mercado Pago de prueba ✅** (ver abajo).
+
+**Antes de lanzar (10 nov) — checklist**
+1. **Precio de la Anticipada de Pinaroli:** hoy está en **$1.000** (se bajó para probar). Volverla al precio real.
+2. **Datos reales del jefe** (paso 7 de abajo), sobre todo el **WhatsApp de contacto** (vacío).
+3. **PINs fuertes:** Admin → Seguridad en la base real, y `ADMIN_PIN`/`SCANNER_PIN` en Vercel.
+4. **Vercel** (paso 5) → **deploy** (paso 6) → **compra de prueba en la URL pública** con el token de prueba (ahí sí vuelve sola de MP y llega el aviso automático/webhook) → probar también `OTHE` y `OTHE`→`APRO` en el mismo checkout → **cámara del scanner en un celular**.
+5. **Salir a producción** (paso 8): token de MP de producción del jefe, ambiente Producción, **Reiniciar ventas** en cada fiesta (borra las compras de prueba: hay varias en Pinaroli), publicar.
+
+**Cómo probar Mercado Pago (aprendido el 9 nov)**
+- El token de prueba es el de **Credenciales de prueba** de la app (`APP_USR-…`, de un vendedor de prueba que MP crea solo). En Admin → Pagos va con ambiente **Prueba (sandbox)**; "Probar" dice "token de PRUEBA".
+- **Pagar sin iniciar sesión en MP** ("Tarjeta" → Visa `4509 9535 6623 3704`, `123`, `11/30`, titular `APRO`, DNI `12345678`, mail inventado). Funciona en una ventana **sin sesión de Mercado Pago**: si el navegador tiene tu cuenta real de MP abierta (o la del vendedor de prueba), MP muestra tus tarjetas reales o "Una de las partes con la que intentás hacer el pago es de prueba". Cuenta Comprador de prueba creada ("buyer Test User"), no hizo falta.
+- En la PC (localhost) MP **no vuelve solo** ni avisa: después de pagar hay que abrir la pantalla de éxito de la compra; la web busca el pago y emite las entradas. En la URL pública vuelve solo.
+- Probado el 9 nov: compra `6c15ad8b` → pago `188759307070` aprobado → compra aprobada → 1 entrada. **No probado con MP real:** `OTHE` (rechazada) y `OTHE`→`APRO` (tienen test automático; probarlos en la URL pública).
 5. **Vercel:** autorizar el equipo `maximiliano-loveras-projects` para el conector de Claude (o cargar a mano en el dashboard): `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` de `junior-eventos`, `AUTH_SECRET` (texto largo al azar), `APP_MODE=production`, `NEXT_PUBLIC_APP_URL` (ya no hace falta `RESEND_*`: sin mail), **`ADMIN_PIN` y `SCANNER_PIN` (6+ dígitos, distintos: sin esto no se puede entrar al panel en producción)**. **Borrar `MP_ACCESS_TOKEN` de Vercel** (token productivo de junio): si queda, se usa cuando la tabla de pagos está vacía y las pruebas cobrarían de verdad. Hoy la web de junio (https://jreventos-entradas.vercel.app) apunta al proyecto pausado y muestra "No hay evento activo". Ver `docs/VERCEL-DEPLOY.md`.
 
 **Mañana 10 nov — lanzamiento (solo si todo lo de arriba anduvo y el usuario da el OK)**
-6. **Deploy y webhook real:** push de `rediseno-recepciones`, PR y merge a `main` (Vercel despliega solo). En MP → Webhooks: `https://<dominio>/api/webhook-mp`, evento Pagos. En la URL pública repetir una compra de prueba (MP sandbox) y ver en Actividad "MP … → aprobado" y la cámara del scanner en el celular.
+6. **Deploy y webhook real:** push de `rediseno-recepciones`, PR y merge a `main` (Vercel despliega solo). En MP → tu app → **Configuración de webhooks**: `https://<dominio>/api/webhook-mp`, evento Pagos (para el token de prueba y después para el de producción). En la URL pública repetir una compra de prueba y ver en Actividad "MP … → aprobado (PRUEBA)" y la cámara del scanner en el celular.
 7. **Datos reales del jefe:** precios, hora, aforo, cierre de anticipadas, **WhatsApp de contacto (hoy vacío en la base real: sin él no aparecen los botones de anular, pago sin cupo, "no encuentro mi entrada" ni el de la portada)**, texto de la política de anulación.
 8. **Salir a producción:** token de MP de producción **nuevo** con ambiente Producción → "Probar" dice PRODUCCIÓN → Reiniciar ventas en cada fiesta (borra las compras de prueba; solo en borrador) → PINs fuertes → Publicar cada fiesta. El aviso MODO PRUEBA desaparece solo.
 9. ~~Mail real~~: descartado (9 nov). Las entradas se entregan en pantalla + PDF.

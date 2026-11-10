@@ -51,12 +51,25 @@ describe("Mercado Pago (aviso del pago)", () => {
     expect((await getOrden(orden.id))?.modoPago).toBe("produccion");
   });
 
-  it("el aviso repetido no duplica entradas", async () => {
+  it("cuentas de prueba (live_mode true) con ambiente Prueba → la compra queda como PRUEBA", async () => {
+    await savePaymentSettingsRow({ mp_access_token: "APP_USR-prueba", mp_environment: "sandbox", mp_enabled: true });
+    try {
+      const orden = await ordenPendiente(1);
+      await processMpPayment({ id: 120, status: "approved", external_reference: orden.id, transaction_amount: orden.montoTotal, live_mode: true });
+      expect((await getOrden(orden.id))?.modoPago).toBe("sandbox");
+    } finally {
+      await savePaymentSettingsRow({ mp_access_token: "", mp_environment: "production", mp_enabled: true });
+    }
+  });
+
+  it("el aviso repetido no duplica entradas ni la anotación en Actividad", async () => {
     const orden = await ordenPendiente(2);
     const pago = { id: 113, status: "approved", external_reference: orden.id, transaction_amount: orden.montoTotal, live_mode: false };
     await processMpPayment(pago);
     await processMpPayment(pago);
     expect(await getTicketsByOrden(orden.id)).toHaveLength(2);
+    const anotaciones = (await getActivity()).filter((a) => a.mensaje.includes(`compra ${orden.id.slice(0, 8)} → aprobado`));
+    expect(anotaciones).toHaveLength(1);
   });
 
   it("tarjeta rechazada → la compra sigue esperando (puede probar con otra)", async () => {
