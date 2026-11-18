@@ -150,8 +150,35 @@ export async function createOrdenPendiente(input: {
   compradorNombre: string;
   compradorEmail: string;
   cantidad: number;
+  compradorDni?: string | null;
+  compradorNacimiento?: string | null;
 }) {
   return sb() ? supabase.createOrdenPendiente(input) : mock.createOrdenPendiente(input);
+}
+
+/** Ya se devolvió el pago doble: se saca el aviso. */
+export async function resolverPagoDoble(ordenId: string) {
+  return sb() ? supabase.resolverPagoDoble(ordenId) : mock.resolverPagoDoble(ordenId);
+}
+
+/** Anota un intento de "Recuperar mis entradas" y devuelve cuántos hubo para ese DNI en la ventana. */
+export async function contarIntentoRecuperar(dni: string, ventanaMs: number) {
+  return sb() ? supabase.contarIntentoRecuperar(dni, ventanaMs) : mock.contarIntentoRecuperar(dni, ventanaMs);
+}
+
+/** Transferencia de menos: cuánto llegó (null para borrarlo). */
+export async function setMontoRecibido(ordenId: string, monto: number | null) {
+  return sb() ? supabase.setMontoRecibido(ordenId, monto) : mock.setMontoRecibido(ordenId, monto);
+}
+
+/** Compras con ese DNI (para "Recuperar mis entradas"). */
+export async function getOrdenesPorDni(dni: string) {
+  return sb() ? supabase.getOrdenesPorDni(dni) : mock.getOrdenesPorDni(dni);
+}
+
+/** Compras sin pagar de todas las fiestas creadas desde `desde` (ISO). */
+export async function getOrdenesPendientesDesde(desde: string) {
+  return sb() ? supabase.getOrdenesPendientesDesde(desde) : mock.getOrdenesPendientesDesde(desde);
 }
 
 /** Simulado si no hubo medio de pago; si no, según el ambiente configurado de ese medio. */

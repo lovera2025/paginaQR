@@ -210,6 +210,8 @@ export function createOrdenPendiente(input: {
   compradorNombre: string;
   compradorEmail: string;
   cantidad: number;
+  compradorDni?: string | null;
+  compradorNacimiento?: string | null;
 }): { orden: Orden } | { error: string } {
   const store = getStore();
   const evento = getEventoById(input.eventoId);
@@ -246,6 +248,10 @@ export function createOrdenPendiente(input: {
     modoPago: null,
     montoReembolsado: 0,
     problema: null,
+    compradorDni: input.compradorDni ?? null,
+    compradorNacimiento: input.compradorNacimiento ?? null,
+    pagosTalo: [],
+    montoRecibido: null,
   };
   store.ordenes.unshift(orden);
   return { orden };
@@ -281,20 +287,73 @@ export function marcarProblemaOrden(
 }
 
 export function getOrdenByPaymentId(paymentId: string): Orden | null {
-  return getStore().ordenes.find((o) => o.paymentId === paymentId) ?? null;
+  const ordenes = getStore().ordenes;
+  return (
+    ordenes.find((o) => o.paymentId === paymentId) ??
+    ordenes.find((o) => o.pagosTalo?.includes(paymentId)) ??
+    null
+  );
+}
+
+export function resolverPagoDoble(ordenId: string): { orden: Orden } | { error: string } {
+  const orden = getStore().ordenes.find((o) => o.id === ordenId);
+  if (!orden || orden.problema !== "pago_doble") return { error: "Esta compra no tiene un pago doble para devolver" };
+  orden.problema = null;
+  return { orden };
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __mockRecuperarIntentos: { dni: string; at: number }[] | undefined;
+}
+
+export function contarIntentoRecuperar(dni: string, ventanaMs: number): number {
+  const ahora = Date.now();
+  const lista = (globalThis.__mockRecuperarIntentos ??= []);
+  lista.push({ dni, at: ahora });
+  return lista.filter((i) => i.dni === dni && ahora - i.at < ventanaMs).length;
+}
+
+export function setMontoRecibido(ordenId: string, monto: number | null): void {
+  const orden = getStore().ordenes.find((o) => o.id === ordenId);
+  if (orden) orden.montoRecibido = monto;
+}
+
+export function getOrdenesPorDni(dni: string): Orden[] {
+  return getStore()
+    .ordenes.filter((o) => o.compradorDni === dni)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 50);
+}
+
+export function getOrdenesPendientesDesde(desde: string): Orden[] {
+  return getStore()
+    .ordenes.filter((o) => o.estado === "pendiente" && o.createdAt >= desde)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 200);
 }
 
 export function setOrdenPaymentId(
   ordenId: string,
   paymentId: string,
   paymentMethod?: PaymentMethod
-): { ok: true } | { error: string } {
+): { ok: true; estado: string } | { error: string } {
   const orden = getStore().ordenes.find((o) => o.id === ordenId);
   if (!orden) return { error: "Orden no encontrada" };
-  if (orden.estado !== "pendiente") return { error: "Orden no está pendiente" };
+  if (paymentMethod === "talo") {
+    // Igual que en Supabase: el pago se agrega siempre; queda como actual solo si sigue pendiente.
+    const previos = orden.pagosTalo ?? [];
+    orden.pagosTalo = previos.includes(paymentId) ? previos : [...previos, paymentId];
+    if (orden.estado === "pendiente") {
+      orden.paymentId = paymentId;
+      orden.paymentMethod = "talo";
+    }
+    return { ok: true, estado: orden.estado };
+  }
+  if (orden.estado !== "pendiente") return { error: "La compra ya no está pendiente" };
   orden.paymentId = paymentId;
   if (paymentMethod) orden.paymentMethod = paymentMethod;
-  return { ok: true };
+  return { ok: true, estado: "pendiente" };
 }
 
 export async function approveOrden(
@@ -327,6 +386,7 @@ export async function approveOrden(
   if (paymentMethod) orden.paymentMethod = paymentMethod;
   orden.modoPago = modoPago;
   orden.problema = null;
+  orden.montoRecibido = null;
 
   const now = new Date().toISOString();
   const nuevos: Ticket[] = Array.from({ length: orden.cantidad }, (_, i) => ({
@@ -543,7 +603,9 @@ export function cerrarEvento(eventoId: string): { evento: Evento } | { error: st
   if (ev.estado !== "venta" && ev.estado !== "pausado")
     return { error: "Solo se puede cerrar una fiesta en venta o pausada" };
   for (const o of store.ordenes) {
-    if (o.eventoId === eventoId && o.estado === "pendiente" && !o.problema) o.estado = "rechazado";
+    if (o.eventoId === eventoId && o.estado === "pendiente" && !o.problema && o.montoRecibido == null) {
+      o.estado = "rechazado";
+    }
   }
   ev.estado = "finalizado";
   ev.activo = false;

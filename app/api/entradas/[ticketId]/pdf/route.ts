@@ -27,10 +27,12 @@ export async function GET(request: Request, { params }: { params: { ticketId: st
     origin: new URL(request.url).origin,
   });
 
+  // ?ver=1 lo abre en pantalla (sirve en navegadores donde la descarga no anda).
+  const inline = new URL(request.url).searchParams.get("ver") === "1";
   return new NextResponse(Buffer.from(pdf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${nombreArchivoPdf(evento, `${ticket.numeroEntrada}-de-${ticket.totalEntradas}`)}"`,
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${nombreArchivoPdf(evento, `${ticket.numeroEntrada}-de-${ticket.totalEntradas}`)}"`,
       "Cache-Control": "private, no-store",
     },
   });

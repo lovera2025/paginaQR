@@ -96,6 +96,18 @@ try {
     console.log("✅ Migración de reservas / pagos sin cupo aplicada");
   }
 
+  // Columnas nuevas (migración 2026_11_talo_pagos_y_dni.sql)
+  const dniRes = await fetch(
+    `${url}/rest/v1/ordenes?select=comprador_dni,comprador_nacimiento,pagos_talo,monto_recibido&limit=0`,
+    { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+  );
+  if (!dniRes.ok) {
+    console.log("❌ Falta correr supabase/migrations/2026_11_talo_pagos_y_dni.sql (DNI y pagos de Talo)");
+    ok = false;
+  } else {
+    console.log("✅ Migración de DNI / pagos de Talo aplicada");
+  }
+
   const eventoRes = await fetch(`${url}/rest/v1/eventos?select=slug,estado&order=fecha`, {
     headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
   });

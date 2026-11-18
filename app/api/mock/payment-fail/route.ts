@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { rejectOrden } from "@/lib/db";
+import { ordenPublica } from "@/lib/entradas/publica";
 import { canSimulatePayment } from "@/lib/talo/credentials";
 
 export async function POST(request: Request) {
@@ -17,5 +18,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  return NextResponse.json({ orden: result.orden });
+  return NextResponse.json({ orden: ordenPublica(result.orden) });
 }

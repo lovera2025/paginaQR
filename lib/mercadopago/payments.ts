@@ -7,7 +7,7 @@ import {
   rejectOrden,
 } from "@/lib/db";
 import { mpFetch } from "@/lib/mercadopago/client";
-import { registrarPagoSinCupo } from "@/lib/payments/problemas";
+import { registrarPagoDoble, registrarPagoSinCupo } from "@/lib/payments/problemas";
 import type { MpPayment, MpPaymentSearchResponse } from "@/lib/mercadopago/types";
 
 export async function getMpPayment(
@@ -54,7 +54,10 @@ export async function processMpPayment(payment: MpPayment): Promise<ResultadoPag
   const ref = `Mercado Pago (pago ${mpPaymentId}) · compra ${ordenId.slice(0, 8)}`;
 
   if (orden.estado === "aprobado") {
-    await approveOrden(ordenId, mpPaymentId, "mp", modo);
+    // Otro pago aprobado para una compra que ya estaba paga (por ejemplo, también transfirió): devolver uno.
+    if (payment.status === "approved" && orden.paymentId && orden.paymentId !== mpPaymentId) {
+      await registrarPagoDoble(orden, ref, Number(payment.transaction_amount ?? orden.montoTotal));
+    }
     return { ok: true };
   }
 

@@ -1,6 +1,8 @@
 /**
- * Compras aprobadas guardadas en el dispositivo (localStorage) para encontrar las entradas otra vez
- * sin mail ni cuenta. Solo las ve quien compró desde ese mismo celular o computadora (y navegador).
+ * Compras guardadas en el dispositivo (localStorage) para encontrar las entradas otra vez sin mail
+ * ni cuenta. Se guardan apenas se muestran los datos para pagar ("pendiente") y se actualizan al
+ * confirmarse. Solo las ve quien compró desde ese mismo celular o computadora (y navegador); desde
+ * otro lado está "Recuperar mis entradas" con DNI y fecha de nacimiento.
  */
 const CLAVE = "je_mis_entradas_v1";
 const MAXIMO = 30;
@@ -12,6 +14,8 @@ export interface CompraGuardada {
   tipo: string;
   cantidad: number;
   guardadaEl: string;
+  /** Lo último que se supo en este dispositivo (sin dato = aprobada, como se guardaba antes). */
+  estado?: "pendiente" | "aprobado";
 }
 
 function esCompra(x: unknown): x is CompraGuardada {

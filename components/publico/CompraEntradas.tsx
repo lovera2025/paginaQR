@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { Evento, PaymentMethod, TipoEntradaDisponible } from "@/types";
 import { DEFAULT_MENSAJE_PROXIMAMENTE, getMensajeProximamente } from "@/lib/evento/messages";
 import { ddmm, formatPrecio, sugerirEmail, whatsappHref } from "@/lib/utils";
+import { MESES, limpiarDni, validarIdentidad } from "@/lib/entradas/identidad";
 import { CuentaTexto } from "./Countdown";
 import { IconCorona, IconWhatsapp } from "./iconos";
 
@@ -177,6 +178,10 @@ export function CompraEntradas({
   const [cantidad, setCantidad] = useState(1);
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
+  const [dni, setDni] = useState("");
+  const [nacDia, setNacDia] = useState("");
+  const [nacMes, setNacMes] = useState("");
+  const [nacAnio, setNacAnio] = useState("");
   // Aviso de mail mal escrito: se muestra al salir del campo (o al intentar seguir) y hasta que elija.
   const [emailTocado, setEmailTocado] = useState(false);
   const [emailConfirmado, setEmailConfirmado] = useState<string | null>(null);
@@ -205,6 +210,12 @@ export function CompraEntradas({
       setError("Elegí un tipo de entrada");
       return;
     }
+    const nacimiento = { dia: nacDia, mes: nacMes, anio: nacAnio };
+    const identidadInvalida = validarIdentidad(dni, nacimiento);
+    if (identidadInvalida) {
+      setError(identidadInvalida);
+      return;
+    }
     if (sugerencia) {
       // Antes de crear la compra: que confirme el mail (si está mal, no lo podemos contactar).
       setEmailTocado(true);
@@ -223,6 +234,8 @@ export function CompraEntradas({
           cantidad,
           compradorNombre: nombre,
           compradorEmail: email,
+          compradorDni: dni,
+          compradorNacimiento: nacimiento,
         }),
       });
       const data = await res.json();
@@ -394,6 +407,70 @@ export function CompraEntradas({
               <p className="text-xs text-white/55">Solo para contactarte si hay algún problema con tu compra. Las entradas te aparecen en pantalla.</p>
             )}
           </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="dni" className="text-xs font-semibold text-white/65">
+              DNI
+            </label>
+            <input
+              id="dni"
+              required
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={11}
+              value={dni}
+              onChange={(e) => setDni(limpiarDni(e.target.value).slice(0, 8))}
+              className="campo"
+              placeholder="Solo números, sin puntos"
+            />
+          </div>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="mb-1.5 text-xs font-semibold text-white/65">Fecha de nacimiento</legend>
+            <div className="grid grid-cols-[1fr_1.6fr_1.2fr] gap-2">
+              <input
+                aria-label="Día de nacimiento"
+                required
+                inputMode="numeric"
+                autoComplete="bday-day"
+                maxLength={2}
+                value={nacDia}
+                onChange={(e) => setNacDia(e.target.value.replace(/\D/g, "").slice(0, 2))}
+                className="campo text-center"
+                placeholder="Día"
+              />
+              <select
+                aria-label="Mes de nacimiento"
+                required
+                autoComplete="bday-month"
+                value={nacMes}
+                onChange={(e) => setNacMes(e.target.value)}
+                className={`campo ${nacMes ? "" : "text-white/45"}`}
+              >
+                <option value="" disabled>
+                  Mes
+                </option>
+                {MESES.map((m, i) => (
+                  <option key={m} value={String(i + 1)} className="text-tinta">
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <input
+                aria-label="Año de nacimiento"
+                required
+                inputMode="numeric"
+                autoComplete="bday-year"
+                maxLength={4}
+                value={nacAnio}
+                onChange={(e) => setNacAnio(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                className="campo text-center"
+                placeholder="Año"
+              />
+            </div>
+            <p className="text-xs text-white/55">
+              Con tu DNI y tu fecha de nacimiento recuperás tus entradas desde la web si cerrás la página.
+            </p>
+          </fieldset>
 
           <AnimatePresence mode="wait">
             {tipo && (

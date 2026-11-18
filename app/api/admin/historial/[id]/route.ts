@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/cookies";
 import { getOrdenesByEvento, getTicketsByEvento } from "@/lib/db";
+import { ordenAdmin } from "@/lib/entradas/publica";
 
 export async function GET(
   _request: Request,
@@ -13,5 +14,5 @@ export async function GET(
     getOrdenesByEvento(params.id),
     getTicketsByEvento(params.id),
   ]);
-  return NextResponse.json({ ordenes, tickets });
+  return NextResponse.json({ ordenes: ordenes.map(ordenAdmin), tickets });
 }

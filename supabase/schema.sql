@@ -71,9 +71,14 @@ CREATE TABLE IF NOT EXISTS ordenes (
   email_sent_at TIMESTAMPTZ,
   modo_pago TEXT CHECK (modo_pago IS NULL OR modo_pago IN ('simulado', 'sandbox', 'produccion')),
   monto_reembolsado NUMERIC(10,2) NOT NULL DEFAULT 0,
-  problema TEXT CHECK (problema IS NULL OR problema IN ('pago_sin_cupo')),
+  problema TEXT CHECK (problema IS NULL OR problema IN ('pago_sin_cupo', 'pago_doble')),
+  comprador_dni TEXT,
+  comprador_nacimiento DATE,
+  pagos_talo TEXT[] NOT NULL DEFAULT '{}',
+  monto_recibido NUMERIC,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_ordenes_dni ON ordenes(comprador_dni) WHERE comprador_dni IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS tickets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -183,3 +188,39 @@ ALTER PUBLICATION supabase_realtime ADD TABLE ordenes;
 ALTER PUBLICATION supabase_realtime ADD TABLE tickets;
 ALTER PUBLICATION supabase_realtime ADD TABLE activity_log;
 ALTER PUBLICATION supabase_realtime ADD TABLE tipos_entrada;
+
+-- ─── Guardar un pago de Talo sin pisar los anteriores ─────────────────────
+-- Agrega el id a pagos_talo de forma atómica (aunque la compra ya no esté pendiente, para no perderlo)
+-- y lo deja como pago actual solo si la compra sigue pendiente. Devuelve el estado de la compra.
+CREATE OR REPLACE FUNCTION agregar_pago_talo(p_orden UUID, p_pago TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  v_estado TEXT;
+BEGIN
+  UPDATE ordenes
+  SET pagos_talo = CASE WHEN p_pago = ANY(pagos_talo) THEN pagos_talo ELSE array_append(pagos_talo, p_pago) END,
+      mp_payment_id = CASE WHEN estado = 'pendiente' THEN p_pago ELSE mp_payment_id END,
+      payment_method = CASE WHEN estado = 'pendiente' THEN 'talo' ELSE payment_method END
+  WHERE id = p_orden
+  RETURNING estado INTO v_estado;
+  RETURN v_estado;
+END;
+$$;
+REVOKE ALL ON FUNCTION agregar_pago_talo(UUID, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION agregar_pago_talo(UUID, TEXT) TO service_role;
+
+-- ─── Tope de "Recuperar mis entradas" por DNI (vale para todas las instancias) ─
+CREATE TABLE IF NOT EXISTS recuperar_intentos (
+  id BIGSERIAL PRIMARY KEY,
+  dni TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_recuperar_intentos_dni ON recuperar_intentos(dni, created_at);
+ALTER TABLE recuperar_intentos ENABLE ROW LEVEL SECURITY;
+
+-- ─── Una entrada por número dentro de cada compra ─────────────────────────
+-- Si se pierde la respuesta al emitir y se reintenta, no se duplican las entradas.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_orden_numero ON tickets(orden_id, numero_entrada);
