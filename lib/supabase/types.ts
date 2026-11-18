@@ -66,6 +66,11 @@ export interface OrdenRow {
   monto_reembolsado: number | string | null;
   /** Columna de la migración 2026_11_reservas_y_problemas.sql (puede no existir todavía). */
   problema?: string | null;
+  /** Columnas de la migración 2026_11_talo_pagos_y_dni.sql. */
+  comprador_dni?: string | null;
+  comprador_nacimiento?: string | null;
+  pagos_talo?: string[] | null;
+  monto_recibido?: number | string | null;
 }
 
 export interface TicketRow {

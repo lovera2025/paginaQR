@@ -27,4 +27,6 @@ beforeEach(() => {
   globalThis.__mockStoreV2 = undefined;
   globalThis.__mockPaymentSettings = undefined;
   globalThis.__mockPins = undefined;
+  globalThis.__mockRecuperarIntentos = undefined;
+  globalThis.__limites = undefined;
 });

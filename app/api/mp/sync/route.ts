@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOrden } from "@/lib/db";
+import { ordenPublica } from "@/lib/entradas/publica";
 import { syncMpPaymentForOrden } from "@/lib/mercadopago/payments";
 import { isPaymentMethodAvailable } from "@/lib/payments/methods";
 
@@ -27,5 +28,5 @@ export async function POST(request: Request) {
   }
 
   const orden = await getOrden(ordenId);
-  return NextResponse.json({ orden });
+  return NextResponse.json({ orden: orden ? ordenPublica(orden) : null });
 }

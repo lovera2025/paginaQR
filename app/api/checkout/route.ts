@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createOrdenPendiente } from "@/lib/db";
+import { normalizarDni, normalizarNacimiento, validarIdentidad } from "@/lib/entradas/identidad";
 import { crearLimite, ipDe } from "@/lib/limite";
 import { getModoPagos } from "@/lib/payments/modo";
+import { ordenPublica } from "@/lib/entradas/publica";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +28,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Elegí la fiesta y el tipo de entrada" }, { status: 400 });
   }
 
+  // DNI + fecha de nacimiento: con los dos juntos el comprador recupera sus entradas desde la web.
+  const identidadInvalida = validarIdentidad(body.compradorDni, body.compradorNacimiento);
+  if (identidadInvalida) {
+    return NextResponse.json({ error: identidadInvalida }, { status: 400 });
+  }
+
   const modo = await getModoPagos();
   if (modo.sinMedios) {
     return NextResponse.json(
@@ -40,6 +48,8 @@ export async function POST(request: Request) {
     compradorNombre: String(body.compradorNombre ?? ""),
     compradorEmail: String(body.compradorEmail ?? ""),
     cantidad: Number(body.cantidad) || 1,
+    compradorDni: normalizarDni(body.compradorDni),
+    compradorNacimiento: normalizarNacimiento(body.compradorNacimiento),
   });
 
   if ("error" in result) {
@@ -49,7 +59,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     mode: modo.simulate ? "simulate" : "choose",
     ordenId: result.orden.id,
-    orden: result.orden,
+    orden: ordenPublica(result.orden),
     methods: modo.methods,
     sandbox: modo.sandbox,
   });

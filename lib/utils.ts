@@ -200,3 +200,23 @@ export function ticketEstadoLabel(ticket: {
   if (ticket.usado) return "Ya ingresó";
   return "Sin usar";
 }
+
+/**
+ * Navegador que abren las apps por dentro (Instagram, Facebook, TikTok, etc.). Ahí la descarga del
+ * PDF muchas veces no hace nada: hay que abrir la página en Chrome o Safari.
+ */
+export function esNavegadorInterno(userAgent: string | undefined | null): boolean {
+  return /Instagram|FBAN|FBAV|FB_IAB|FBIOS|FB4A|Messenger|musical_ly|TikTok|BytedanceWebview|Snapchat|\bLine\/|Twitter|LinkedInApp|Pinterest/i.test(
+    userAgent ?? ""
+  );
+}
+
+export function esAndroid(userAgent: string | undefined | null): boolean {
+  return /Android/i.test(userAgent ?? "");
+}
+
+/** Link que en Android abre la misma página en Chrome (desde el navegador de una app). */
+export function abrirEnChromeHref(url: string): string {
+  const u = new URL(url);
+  return `intent://${u.host}${u.pathname}${u.search}${u.hash}#Intent;scheme=${u.protocol.replace(":", "")};package=com.android.chrome;end`;
+}

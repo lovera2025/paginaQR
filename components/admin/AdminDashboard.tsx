@@ -190,6 +190,8 @@ export function AdminDashboard() {
   const [tab, setTab] = useState<Tab>("resumen");
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
+  const [revisandoTodas, setRevisandoTodas] = useState(false);
+  const revisionAutoRef = useRef(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [activity, setActivity] = useState<ActivityLog[]>([]);
   const [evento, setEvento] = useState<Evento | null>(null);
@@ -441,7 +443,9 @@ export function AdminDashboard() {
   async function handleDevueltaSinCupo(o: Orden) {
     if (
       !confirm(
-        `¿Ya le devolviste ${formatPrecio(o.montoTotal)} a ${o.compradorNombre}? La compra queda cerrada como devuelta.`
+        o.problema === "pago_doble"
+          ? `¿Ya le devolviste a ${o.compradorNombre} el pago de más? Sus entradas siguen válidas.`
+          : `¿Ya le devolviste ${formatPrecio(o.montoTotal)} a ${o.compradorNombre}? La compra queda cerrada como devuelta.`
       )
     )
       return;
@@ -478,6 +482,42 @@ export function AdminDashboard() {
       setActionLoading(null);
     }
   }
+
+  async function handleRevisarTodas(auto = false) {
+    setRevisandoTodas(true);
+    try {
+      const res = await fetch("/api/admin/ordenes/revisar-todas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dias: auto ? 2 : 10 }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (!auto) showToast("error", data.error ?? "No se pudo revisar");
+        return;
+      }
+      const partes: string[] = [];
+      if (data.pagadas) partes.push(`${data.pagadas} estaban pagas: entradas emitidas`);
+      if (data.sinCupo) partes.push(`${data.sinCupo} pagaron sin cupo (devolver)`);
+      if (data.deMenos) partes.push(`${data.deMenos} transfirieron de menos`);
+      if (partes.length) {
+        showToast(data.sinCupo || data.deMenos ? "error" : "success", partes.join(" · "));
+        refresh();
+      } else if (!auto) {
+        showToast("success", data.revisadas ? `Revisé ${data.revisadas}: ninguna se pagó todavía` : "No hay compras sin pagar para revisar");
+      }
+    } finally {
+      setRevisandoTodas(false);
+    }
+  }
+
+  // Al abrir Compras se revisan solas las transferencias de los últimos 2 días (una vez por sesión).
+  useEffect(() => {
+    if (tab !== "compras" || revisionAutoRef.current) return;
+    revisionAutoRef.current = true;
+    handleRevisarTodas(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   async function persistEvento(updated: Evento, successMsg?: string) {
     const res = await fetch(`/api/admin/evento?evento=${encodeURIComponent(updated.id)}`, {
@@ -1253,6 +1293,15 @@ export function AdminDashboard() {
         {tab === "marca" && <BrandingForm onToast={showToast} />}
 
         {/* ── COMPRAS ────────────────────────────────────── */}
+        {tab === "compras" && ordenes.some((o) => o.problema === "pago_doble") && (
+          <div role="alert" className="mb-4 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+            <p className="font-bold text-red-300">Hay personas que pagaron dos veces</p>
+            <p className="mt-1 text-red-200/90">
+              Sus entradas ya están emitidas y siguen válidas, pero entró un pago de más: devolvéselo desde la cuenta de Talo o
+              Mercado Pago. Están marcadas abajo con <strong>PAGÓ DOS VECES</strong>.
+            </p>
+          </div>
+        )}
         {tab === "compras" && ordenes.some((o) => o.problema === "pago_sin_cupo" && o.estado === "pendiente") && (
           <div role="alert" className="mb-4 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
             <p className="font-bold text-red-300">Hay pagos que entraron sin entradas disponibles</p>
@@ -1269,6 +1318,15 @@ export function AdminDashboard() {
               {ordenes.length} {ordenes.length === 1 ? "compra" : "compras"} en esta fiesta.
             </p>
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleRevisarTodas(false)}
+                disabled={revisandoTodas}
+                title="Pregunta en Talo / Mercado Pago si alguna compra sin pagar (de todas las fiestas) en realidad se pagó"
+                className="flex h-9 items-center rounded-lg border border-blue-400/40 px-3.5 text-xs font-semibold text-blue-300 hover:bg-blue-500/10 disabled:opacity-50"
+              >
+                {revisandoTodas ? "Revisando pagos…" : "Revisar todas las sin pagar"}
+              </button>
               {eventoId && (
                 <a
                   href={`/api/admin/ordenes/export?evento=${encodeURIComponent(eventoId)}`}
@@ -1307,7 +1365,10 @@ export function AdminDashboard() {
                 {ordenes.map((o) => (
                   <tr key={o.id} className="border-b border-white/5">
                     <td className="p-3 text-white/60">{formatFechaCorta(o.createdAt)}</td>
-                    <td className="p-3">{o.compradorNombre}</td>
+                    <td className="p-3">
+                      {o.compradorNombre}
+                      {o.compradorDni && <span className="block text-[11px] text-white/45">DNI {o.compradorDni}</span>}
+                    </td>
                     <td className="p-3 text-white/60">{o.compradorEmail}</td>
                     <td className="p-3">{o.tipoNombre}</td>
                     <td className="p-3">{o.cantidad}</td>
@@ -1343,6 +1404,16 @@ export function AdminDashboard() {
                           PAGO SIN CUPO · DEVOLVER
                         </span>
                       )}
+                      {o.problema === "pago_doble" && (
+                        <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] text-white">
+                          PAGÓ DOS VECES · DEVOLVER UNO
+                        </span>
+                      )}
+                      {o.estado === "pendiente" && !o.problema && o.montoRecibido != null && (
+                        <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] text-tinta">
+                          TRANSFIRIÓ DE MENOS · LLEGARON {formatPrecio(o.montoRecibido)}
+                        </span>
+                      )}
                       </div>
                     </td>
                     <td className="p-3">
@@ -1367,14 +1438,25 @@ export function AdminDashboard() {
                           Ya le devolví la plata
                         </button>
                       )}
+                      {o.estado === "aprobado" && o.problema === "pago_doble" && (
+                        <button
+                          type="button"
+                          disabled={actionLoading === o.id}
+                          onClick={() => handleDevueltaSinCupo(o)}
+                          className="mb-1 text-left text-xs font-semibold text-red-300 hover:underline disabled:opacity-50"
+                        >
+                          Ya le devolví el pago de más
+                        </button>
+                      )}
                       {o.estado === "aprobado" && (
                         <div className="flex flex-col gap-1">
                           <button
                             type="button"
                             onClick={() => copyOrdenLink(o.id)}
+                            title="Link a sus entradas para mandarle por WhatsApp"
                             className="text-left text-xs text-blue-400 hover:underline"
                           >
-                            Copiar link
+                            Copiar link de las entradas
                           </button>
                           <a
                             href={`/api/ordenes/${o.id}/pdf`}

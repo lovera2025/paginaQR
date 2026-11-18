@@ -1,18 +1,22 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { formatPrecio } from "@/lib/utils";
+import { formatPrecio, whatsappHref } from "@/lib/utils";
+import { guardarCompra } from "@/lib/entradas/guardadas";
 import { linkPagoVenceEl } from "@/lib/entradas/tipos";
-import { IconBanco, IconTarjeta, IconAtras, IconReloj } from "@/components/publico/iconos";
+import { IconBanco, IconTarjeta, IconAtras, IconReloj, IconWhatsapp } from "@/components/publico/iconos";
 import { BarraModoPrueba } from "@/components/publico/BarraModoPrueba";
 import { avisoModoPrueba } from "@/lib/payments/aviso";
 import type { Orden, PaymentMethod } from "@/types";
 
 type Resumen = Orden & {
   evento: { nombre: string; slug: string; fecha: string; lugar: string; flyerUrl: string; colorSecundario: string } | null;
+  contacto?: { whatsapp: string };
+  /** Ya empezó un pago (por ejemplo, se mostró un alias de transferencia). */
+  pagoIniciado?: boolean;
 };
 
 /** Segundos que faltan para que venza el tiempo de pago (null mientras no se sabe). */
@@ -94,6 +98,12 @@ interface PaymentInfo {
   montoTotal: number;
 }
 
+/** Respuesta de /api/talo/payment. */
+type PasoTalo =
+  | ({ tipo: "transferir" } & PaymentInfo)
+  | ({ tipo: "incompleto"; recibido: number } & PaymentInfo)
+  | { tipo: "aprobada" | "sin_cupo" };
+
 function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -109,10 +119,21 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
   const [redirectingMp, setRedirectingMp] = useState(false);
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [sinMedios, setSinMedios] = useState(false);
+  const [recibido, setRecibido] = useState<number | null>(null);
+  const [vencidaServidor, setVencidaServidor] = useState(false);
+  const [revisando, setRevisando] = useState(false);
+  const [avisoRevision, setAvisoRevision] = useState("");
+  const [linkCopiado, setLinkCopiado] = useState(false);
+  // Se mostró un alias en esta visita (el resumen se pidió antes de eso).
+  const [taloIniciado, setTaloIniciado] = useState(false);
+  // En desarrollo React corre los efectos dos veces: que no se pidan dos alias para la misma compra.
+  const taloPedidoRef = useRef<string | null>(null);
   const volverHref = resumen?.evento ? `/fiesta/${resumen.evento.slug}` : "/";
   const venceEl = useMemo(() => (resumen?.createdAt ? linkPagoVenceEl(resumen) : null), [resumen]);
   const segundos = useSegundosRestantes(venceEl);
-  const vencida = segundos === 0;
+  // Si ya empezó una transferencia, el reloj no corre: puede haber transferido y tiene que ver su pago.
+  const transferenciaIniciada = Boolean(resumen?.pagoIniciado) || taloIniciado;
+  const vencida = vencidaServidor || (segundos === 0 && !transferenciaIniciada);
 
   useEffect(() => {
     if (!ordenId) return;
@@ -164,23 +185,40 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
     setLoading(true);
     setError("");
 
-    const res = await fetch("/api/talo/payment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ordenId }),
-    });
-    const data = await res.json();
+    let res: Response;
+    let data: PasoTalo & { error?: string; vencida?: boolean };
+    try {
+      res = await fetch("/api/talo/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ordenId }),
+      });
+      data = await res.json();
+    } catch {
+      setError("Sin conexión. Probá de nuevo.");
+      setLoading(false);
+      return;
+    }
 
     if (!res.ok) {
+      if (data.vencida) setVencidaServidor(true);
       setError(data.error ?? "No se pudo iniciar el pago con Talo");
       setLoading(false);
       setSelectedMethod(null);
       return;
     }
+    // Ya estaba paga (por ejemplo, transfirió y la página se recargó): directo a las entradas.
+    if (data.tipo === "aprobada" || data.tipo === "sin_cupo") {
+      router.replace(`/compra/exito?orden=${ordenId}&metodo=talo`);
+      return;
+    }
 
-    setPayment(data);
+    const paso = data as Extract<PasoTalo, { tipo: "transferir" | "incompleto" }>;
+    setRecibido(paso.tipo === "incompleto" ? paso.recibido : null);
+    setTaloIniciado(true);
+    setPayment(paso);
     setLoading(false);
-  }, [ordenId]);
+  }, [ordenId, router]);
 
   useEffect(() => {
     if (!ordenId) return;
@@ -210,7 +248,8 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
           setSelectedMethod(only);
           if (only === "mp") {
             startMercadoPago();
-          } else {
+          } else if (taloPedidoRef.current !== ordenId) {
+            taloPedidoRef.current = ordenId;
             startTalo();
           }
           return;
@@ -224,46 +263,104 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
       });
   }, [ordenId, startMercadoPago, startTalo, onAviso]);
 
+  /** Pregunta en Talo si llegó la transferencia. Devuelve true si ya no hay que seguir esperando. */
+  const revisarTransferencia = useCallback(async (): Promise<boolean> => {
+    if (!ordenId) return true;
+    let info: { recibido?: number | null } = {};
+    try {
+      const sync = await fetch("/api/talo/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ordenId }),
+      });
+      info = await sync.json().catch(() => ({}));
+    } catch {
+      return false; // sin conexión: se reintenta
+    }
+    const ordenRes = await fetch(`/api/ordenes/${ordenId}`, { cache: "no-store" }).catch(() => null);
+    const orden = ordenRes?.ok ? await ordenRes.json() : null;
+    if (!orden) return false;
+    if (orden.estado === "aprobado" || orden.problema) {
+      router.push(`/compra/exito?orden=${ordenId}&metodo=talo`);
+      return true;
+    }
+    if (orden.estado === "rechazado") {
+      router.push(`/compra/error?orden=${ordenId}`);
+      return true;
+    }
+    const llego = orden.montoRecibido ?? info.recibido ?? null;
+    if (llego != null) setRecibido(Number(llego));
+    return false;
+  }, [ordenId, router]);
+
+  useEffect(() => {
+    if (!payment || !ordenId || simulateMode) return;
+    // Queda guardada en el dispositivo: si cierra la página, la encuentra en "Mis entradas".
+    guardarCompra({
+      ordenId,
+      evento: resumen?.evento?.nombre ?? "Tu compra",
+      fecha: resumen?.evento?.fecha ?? null,
+      tipo: resumen?.tipoNombre ?? "Entrada",
+      cantidad: resumen?.cantidad ?? 1,
+      estado: "pendiente",
+    });
+  }, [payment, ordenId, simulateMode, resumen]);
+
   useEffect(() => {
     if (!payment || !ordenId || simulateMode) return;
 
     let cancelled = false;
+    let espera: ReturnType<typeof setTimeout> | null = null;
+    let despertar: (() => void) | null = null;
     setWaiting(true);
 
+    // Al volver de la app del banco se consulta enseguida.
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && despertar) despertar();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     async function poll() {
-      for (let i = 0; i < 120 && !cancelled; i++) {
-        await fetch("/api/talo/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ordenId,
-            paymentId: payment?.paymentId,
-          }),
+      // Sin tope mientras la pantalla esté abierta: cada 3 s los primeros 3 minutos, después cada 15 s.
+      for (let i = 0; !cancelled; i++) {
+        if (await revisarTransferencia()) return;
+        await new Promise<void>((res) => {
+          despertar = () => {
+            if (espera) clearTimeout(espera);
+            res();
+          };
+          espera = setTimeout(res, i < 60 ? 3000 : 15000);
         });
-
-        const ordenRes = await fetch(`/api/ordenes/${ordenId}`);
-        const orden = await ordenRes.json();
-
-        if (orden.estado === "aprobado") {
-          router.push(`/compra/exito?orden=${ordenId}&metodo=talo`);
-          return;
-        }
-        if (orden.estado === "rechazado") {
-          router.push(`/compra/error?orden=${ordenId}`);
-          return;
-        }
-
-        await new Promise((r) => setTimeout(r, 3000));
+        despertar = null;
       }
-
-      if (!cancelled) setWaiting(false);
     }
 
     poll();
     return () => {
       cancelled = true;
+      if (espera) clearTimeout(espera);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [payment, ordenId, router, simulateMode]);
+  }, [payment, ordenId, simulateMode, revisarTransferencia]);
+
+  async function revisarAhora() {
+    setRevisando(true);
+    setAvisoRevision("");
+    const listo = await revisarTransferencia();
+    if (!listo) setAvisoRevision("Todavía no nos llegó. Una transferencia puede tardar unos minutos: dejá esta pantalla abierta.");
+    setRevisando(false);
+  }
+
+  async function copiarLinkCompra() {
+    const link = `${window.location.origin}/compra/exito?orden=${ordenId}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setLinkCopiado(true);
+      setTimeout(() => setLinkCopiado(false), 2500);
+    } catch {
+      window.prompt("Guardá este link para volver a tu compra:", link);
+    }
+  }
 
   async function handleChooseMethod(method: PaymentMethod) {
     setSelectedMethod(method);
@@ -328,6 +425,7 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
   if (vencida && !payment && !redirectingMp) {
     return <ReservaVencida volverHref={volverHref} />;
   }
+  // Mientras se consulta una transferencia ya iniciada no se muestra el reloj vencido.
 
   if (loading || redirectingMp) {
     return (
@@ -455,6 +553,18 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
     return (
       <div className="mx-auto max-w-md text-center">
         <p className="mb-4 text-red-400">{error || "No se pudo cargar el pago"}</p>
+        {(selectedMethod === "talo" || (methods.length === 1 && methods[0] === "talo") || transferenciaIniciada) && (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedMethod("talo");
+              startTalo();
+            }}
+            className="btn-oro mb-4 h-12 px-6 text-sm"
+          >
+            Probar de nuevo
+          </button>
+        )}
         {methods.length > 1 && (
           <button
             type="button"
@@ -478,11 +588,39 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
   return (
     <div className="mx-auto max-w-lg">
       <ResumenCompra r={resumen} />
-      <h1 className="mb-2 text-center font-display text-2xl font-extrabold">Transferí para confirmar</h1>
-      <p className="mb-8 text-center text-sm text-white/60">
-        Enviá el monto exacto desde tu banco o billetera. Cuando se acredite, tus entradas aparecen solas.
-      </p>
+      {recibido != null ? (
+        <div role="alert" className="mb-6 rounded-2xl border border-amber-400/50 bg-amber-400/10 p-5 text-center">
+          <p className="font-display text-lg font-extrabold text-amber-200">Llegó menos plata de la que era</p>
+          <p className="mt-1 text-sm text-white/80">
+            Recibimos <strong>{formatPrecio(recibido)}</strong> de <strong>{formatPrecio(payment.montoTotal)}</strong>{" "}
+            (faltan <strong>{formatPrecio(Math.max(0, payment.montoTotal - recibido))}</strong>). Todavía no emitimos tus
+            entradas: escribinos con tu código{" "}
+            <strong className="font-mono tracking-[0.1em]">{ordenId.slice(0, 8).toUpperCase()}</strong> y lo resolvemos.
+          </p>
+          {whatsappHref(resumen?.contacto?.whatsapp, `Hola! Transferí de menos en la compra ${ordenId.slice(0, 8).toUpperCase()}. ¿Cómo lo resuelvo?`) && (
+            <a
+              href={whatsappHref(resumen?.contacto?.whatsapp, `Hola! Transferí de menos en la compra ${ordenId.slice(0, 8).toUpperCase()}. ¿Cómo lo resuelvo?`) ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex h-10 items-center gap-2 rounded-full bg-[#25d366] px-4 text-[13px] font-bold text-[#06240f]"
+            >
+              <IconWhatsapp size={16} />
+              Escribinos
+            </a>
+          )}
+        </div>
+      ) : (
+        <>
+          <h1 className="mb-2 text-center font-display text-2xl font-extrabold">Transferí para confirmar</h1>
+          <p className="mb-8 text-center text-sm text-white/60">
+            Enviá el monto exacto desde tu banco o billetera. Cuando se acredite, tus entradas aparecen solas.
+          </p>
+        </>
+      )}
 
+      {/* Con una transferencia de menos no se muestran los datos para transferir el total otra vez. */}
+      {recibido == null && (
+      <>
       <div className="mb-6 rounded-2xl border border-oro/35 bg-oro/[0.08] p-6">
         <p className="mb-1 text-sm text-white/55">Monto a transferir</p>
         <p className="font-display text-4xl font-black text-oro-claro">{formatPrecio(payment.amount)}</p>
@@ -526,14 +664,37 @@ function PagoContent({ onAviso }: { onAviso: (texto: string | null) => void }) {
           <li>Transferí el monto exacto: {formatPrecio(payment.amount)}</li>
           <li>Al acreditarse, tus entradas con QR aparecen en pantalla</li>
           <li>Compra registrada a nombre de <strong>{payment.compradorEmail}</strong></li>
-          <li>No cierres esta pantalla hasta que confirmemos el pago</li>
+          <li>Podés ir a la app de tu banco y volver: esta pantalla se actualiza sola</li>
+          <li>
+            Si se cierra, tus entradas quedan en <strong>Mis entradas</strong> (o buscalas con tu DNI)
+          </li>
         </ul>
       </div>
+      </>
+      )}
 
       {waiting && (
-        <div className="flex items-center justify-center gap-3 rounded-xl border border-white/10 px-4 py-3 text-sm text-white/70">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/15 border-t-oro" />
-          Esperando confirmación de la transferencia...
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-white/10 px-4 py-4 text-sm text-white/70">
+          <div className="flex items-center gap-3">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/15 border-t-oro" />
+            Esperando confirmación de la transferencia…
+          </div>
+          <button
+            type="button"
+            onClick={revisarAhora}
+            disabled={revisando}
+            className="btn-borde h-11 px-5 text-sm disabled:opacity-60"
+          >
+            {revisando ? "Revisando…" : "Ya transferí, revisar ahora"}
+          </button>
+          {avisoRevision && <p className="text-center text-xs text-amber-200/90">{avisoRevision}</p>}
+          <p className="text-center text-xs text-white/55">
+            Código de compra:{" "}
+            <strong className="font-mono tracking-[0.1em] text-white/85">{ordenId.slice(0, 8).toUpperCase()}</strong> ·{" "}
+            <button type="button" onClick={copiarLinkCompra} className="underline hover:text-white">
+              {linkCopiado ? "¡Link copiado!" : "Copiar link de esta compra"}
+            </button>
+          </p>
         </div>
       )}
 

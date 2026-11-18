@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { AnimatePresence, motion } from "framer-motion";
 import { EntradaCard } from "@/components/entradas/EntradaCard";
+import { AvisoNavegadorInterno } from "@/components/publico/AvisoNavegadorInterno";
 import { IconCompartir, IconCruz, IconDescargar, IconReloj, IconWhatsapp } from "@/components/publico/iconos";
 import { horaCorta, whatsappHref } from "@/lib/utils";
 import type { Branding, Evento, Orden, Ticket } from "@/types";
@@ -52,9 +53,14 @@ export function TicketQrPanel({ orden }: { orden: Orden }) {
       const res = await fetch(`/api/ordenes/${orden.id}/tickets`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "No se pudieron cargar las entradas");
+        // Si ya se mostraron, se dejan como están (se reintenta en el próximo ciclo).
+        setDatos((actuales) => {
+          if (!actuales) setError(data.error ?? "No se pudieron cargar las entradas");
+          return actuales;
+        });
         return;
       }
+      setError("");
       const tickets = (data.tickets as Ticket[]).sort((a, b) => a.numeroEntrada - b.numeroEntrada);
       setDatos({ tickets, evento: data.evento, branding: data.branding });
       setSel((actual) =>
@@ -79,7 +85,16 @@ export function TicketQrPanel({ orden }: { orden: Orden }) {
     };
   }, [cargar]);
 
-  if (error) return <p className="text-center text-red-300">{error}</p>;
+  if (error && !datos) {
+    return (
+      <div className="flex flex-col items-center gap-3 text-center">
+        <p className="text-red-300">{error}</p>
+        <button type="button" onClick={() => cargar()} className="btn-borde h-10 px-4 text-[13px]">
+          Probar de nuevo
+        </button>
+      </div>
+    );
+  }
   if (!datos) {
     return (
       <div className="flex justify-center py-10">
@@ -110,6 +125,7 @@ export function TicketQrPanel({ orden }: { orden: Orden }) {
 
   return (
     <div className="flex flex-col gap-5">
+      {activas.length > 0 && <AvisoNavegadorInterno />}
       {activas.length > 0 && (
         <div className="flex flex-col gap-2.5">
           <a href={`/api/ordenes/${orden.id}/pdf`} className="btn-oro h-[54px] text-[15px]">
@@ -117,7 +133,15 @@ export function TicketQrPanel({ orden }: { orden: Orden }) {
             {activas.length > 1 ? `Descargar las ${activas.length} entradas (PDF)` : "Descargar entrada (PDF)"}
           </a>
           <p className="text-center text-xs text-white/60">
-            Guardala antes de ir: en el predio puede no haber señal.
+            Guardala antes de ir: en el predio puede no haber señal.{" "}
+            <a
+              href={`/api/ordenes/${orden.id}/pdf?ver=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="whitespace-nowrap text-white/80 underline"
+            >
+              ¿No se descarga? Abrilo en pantalla
+            </a>
           </p>
         </div>
       )}

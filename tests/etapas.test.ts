@@ -165,7 +165,7 @@ describe("descargar compras", () => {
     expect(csv.startsWith("﻿")).toBe(true);
     const lineas = csv.trim().split("\r\n");
     expect(lineas).toHaveLength(3);
-    expect(lineas[0]).toContain("Comprador;Email");
+    expect(lineas[0]).toContain("Comprador;DNI;Email");
     expect(lineas[1]).toContain('"Colegio ""Torrent"""');
     expect(lineas[1]).toContain("'=HYPERLINK(1)");
     expect(lineas[1]).toContain('"a;b@x.com"');

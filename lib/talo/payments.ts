@@ -6,9 +6,12 @@ import {
   reabrirOrden,
   registrarActividad,
   rejectOrden,
+  setMontoRecibido,
 } from "@/lib/db";
 import { getAppUrl } from "@/lib/config";
-import { registrarPagoSinCupo } from "@/lib/payments/problemas";
+import { registrarPagoDoble, registrarPagoSinCupo } from "@/lib/payments/problemas";
+import { MENSAJE_RESERVA_VENCIDA, reservaVencida } from "@/lib/payments/reserva";
+import { formatPrecio } from "@/lib/utils";
 import { getTaloClient, getTaloWebhookUrl } from "@/lib/talo/client";
 import type { Evento, Orden } from "@/types";
 
@@ -18,6 +21,31 @@ export interface TaloTransferInstructions {
   cvu: string;
   amount: number;
   status: PaymentResponse["payment_status"];
+}
+
+/** La plata llegó (completa o de más). */
+export function taloAcreditado(status: PaymentResponse["payment_status"] | undefined): boolean {
+  return status === "SUCCESS" || status === "OVERPAID";
+}
+
+/** Plata que llegó a un pago de Talo (suma de las transferencias). */
+export function recibidoTalo(payment: PaymentResponse): number {
+  return (payment.transactions ?? []).reduce((total, t) => total + (Number(t.amount) || 0), 0);
+}
+
+/**
+ * Parte del id de Talo que distingue un pago de otro. Los ids son "VAR-<cuenta>-<pago>": el
+ * principio es igual para todos los pagos de la misma cuenta.
+ */
+export function idCortoTalo(paymentId: string): string {
+  return paymentId.length > 12 ? `…${paymentId.slice(-8)}` : paymentId;
+}
+
+/** Pagos de Talo de una compra, del más nuevo al más viejo (sin los simulados). */
+export function idsTaloDe(orden: Pick<Orden, "pagosTalo" | "paymentId" | "paymentMethod">): string[] {
+  const ids = [...(orden.pagosTalo ?? [])];
+  if (orden.paymentMethod === "talo" && orden.paymentId && !ids.includes(orden.paymentId)) ids.push(orden.paymentId);
+  return ids.filter((id) => id && !id.startsWith("mock_")).reverse();
 }
 
 function splitNombre(nombre: string): { firstName: string; lastName: string } {
@@ -100,28 +128,62 @@ export async function testTaloConnection(): Promise<
   }
 }
 
-export async function createTaloPaymentForOrden(
-  orden: Orden,
-  evento: Evento
-): Promise<TaloTransferInstructions | { error: string }> {
+/** Qué mostrarle al comprador cuando quiere pagar por transferencia. */
+export type PasoTalo =
+  | ({ tipo: "transferir" } & TaloTransferInstructions)
+  | { tipo: "aprobada" }
+  | { tipo: "sin_cupo" }
+  | ({ tipo: "incompleto"; recibido: number; total: number } & TaloTransferInstructions)
+  | { error: string; vencida?: boolean };
+
+/**
+ * Datos para transferir. Antes de generar un pago nuevo revisa los que ya tiene la compra:
+ * si alguno se pagó, se aprueba (nunca se genera otro alias encima de una transferencia hecha);
+ * si llegó de menos, se avisa; si sigue esperando, se muestran los mismos datos.
+ * Solo se genera uno nuevo si no había o si el anterior venció en Talo.
+ */
+export async function createTaloPaymentForOrden(orden: Orden, evento: Evento): Promise<PasoTalo> {
   const taloResult = await getTaloClient();
   if ("error" in taloResult) return taloResult;
 
   const { client } = taloResult;
-  const appUrl = getAppUrl();
-  const { firstName, lastName } = splitNombre(orden.compradorNombre);
-
-  if (orden.paymentId && !orden.paymentId.startsWith("mock_")) {
+  const ids = idsTaloDe(orden);
+  let ultimo: PaymentResponse | null = null;
+  for (const id of ids) {
+    let existente: PaymentResponse;
     try {
-      const existing = await client.payments.get(orden.paymentId);
-      if (existing.payment_status === "PENDING") {
-        return extractTransferInstructions(existing, orden.montoTotal);
-      }
+      existente = await client.payments.get(id);
     } catch {
-      // Si falla, creamos un pago nuevo abajo.
+      // Sin saber si ya pagó no se genera otro alias: que pruebe de nuevo en un momento.
+      return { error: "No pudimos consultar tu transferencia. Probá de nuevo en un momento." };
     }
+    if (existente.external_id && existente.external_id !== orden.id) continue;
+    if (taloAcreditado(existente.payment_status)) {
+      const r = await processTaloPayment(existente);
+      if ("error" in r) {
+        return { error: "Tu transferencia llegó pero todavía no pudimos emitir las entradas. Probá de nuevo en un momento." };
+      }
+      const actual = await getOrden(orden.id);
+      return actual?.problema === "pago_sin_cupo" && actual.estado !== "aprobado" ? { tipo: "sin_cupo" } : { tipo: "aprobada" };
+    }
+    if (!ultimo) ultimo = existente;
   }
 
+  if (ultimo && ultimo.payment_status !== "EXPIRED") {
+    const datos = extractTransferInstructions(ultimo, orden.montoTotal);
+    if ("error" in datos) return datos;
+    if (ultimo.payment_status === "UNDERPAID") {
+      await processTaloPayment(ultimo);
+      return { tipo: "incompleto", recibido: recibidoTalo(ultimo), total: orden.montoTotal, ...datos };
+    }
+    return { tipo: "transferir", ...datos };
+  }
+
+  // No hay pago vigente: uno nuevo solo dentro de la reserva.
+  if (reservaVencida(orden)) return { error: MENSAJE_RESERVA_VENCIDA, vencida: true };
+
+  const appUrl = getAppUrl();
+  const { firstName, lastName } = splitNombre(orden.compradorNombre);
   const payment = await client.payments.create({
     user_id: taloResult.credentials.userId,
     price: { amount: Number(orden.montoTotal), currency: "ARS" },
@@ -136,8 +198,15 @@ export async function createTaloPaymentForOrden(
       email: orden.compradorEmail,
     },
   });
+  if (ultimo) {
+    await registrarActividad(
+      "pago",
+      `Transferencia (Talo ${idCortoTalo(ultimo.id)}) · compra ${orden.id.slice(0, 8)} → venció en Talo: se generó otro alias (Talo ${idCortoTalo(payment.id)})`
+    );
+  }
 
-  return extractTransferInstructions(payment, orden.montoTotal);
+  const datos = extractTransferInstructions(payment, orden.montoTotal);
+  return "error" in datos ? datos : { tipo: "transferir", ...datos };
 }
 
 /** `reintentar` = falló algo momentáneo: el aviso responde error para que Talo lo reintente. */
@@ -157,13 +226,23 @@ export async function processTaloPayment(
   const orden = await getOrden(ordenId);
   if (!orden) return { error: "Orden no encontrada" };
 
+  const ref = `Transferencia (Talo ${idCortoTalo(paymentId)}) · compra ${ordenId.slice(0, 8)}`;
+  const acreditada = taloAcreditado(payment.payment_status);
+
   if (orden.estado === "aprobado") {
-    await approveOrden(ordenId, paymentId, "talo");
+    // Llegó plata a otro pago de una compra que ya estaba paga: hay que devolver uno.
+    if (acreditada && orden.paymentId && orden.paymentId !== paymentId) {
+      await registrarPagoDoble(orden, ref, recibidoTalo(payment) || orden.montoTotal);
+    }
     return { ok: true };
   }
 
-  const ref = `Transferencia (Talo ${paymentId.slice(0, 12)}) · compra ${ordenId.slice(0, 8)}`;
-  const acreditada = payment.payment_status === "SUCCESS" || payment.payment_status === "OVERPAID";
+  // Transferencia de menos sobre una compra cerrada (vencida): se reabre para que se vea y se resuelva.
+  if (orden.estado === "rechazado" && payment.payment_status === "UNDERPAID") {
+    const reabierta = await reabrirOrden(ordenId);
+    if ("error" in reabierta) return { error: reabierta.error, reintentar: true };
+    return processTaloPayment(payment);
+  }
 
   // La transferencia llegó después de que la compra se cerró (ej. vencida): se reabre para emitir
   // las entradas; si ya no hay lugar, queda marcada para devolver la plata.
@@ -191,7 +270,23 @@ export async function processTaloPayment(
     return { ok: true };
   }
 
+  if (payment.payment_status === "UNDERPAID") {
+    const recibido = recibidoTalo(payment);
+    if (orden.montoRecibido !== recibido) {
+      await setMontoRecibido(ordenId, recibido);
+      await registrarActividad(
+        "pago",
+        `${ref} → TRANSFIRIÓ DE MENOS: llegaron ${formatPrecio(recibido)} de ${formatPrecio(orden.montoTotal)}. No se emitieron entradas.`
+      );
+    }
+    return { ok: true };
+  }
+
   if (payment.payment_status === "EXPIRED") {
+    // Venció un alias viejo pero la compra ya tiene otro pago más nuevo: no se cierra.
+    if (orden.paymentMethod === "talo" && orden.paymentId && orden.paymentId !== paymentId) {
+      return { ok: true };
+    }
     const result = await rejectOrden(ordenId);
     if ("error" in result) return { error: result.error, reintentar: true };
     await registrarActividad("pago", `${ref} → venció sin pagar`);
@@ -201,31 +296,47 @@ export async function processTaloPayment(
   return { ok: true };
 }
 
+/**
+ * Consulta en Talo todos los pagos de la compra (no solo el último) y aplica lo que corresponda.
+ * `status` y `recibido` son los del pago que decidió el resultado.
+ */
 export async function syncTaloPaymentForOrden(
-  ordenId: string,
-  paymentId?: string
-): Promise<{ ok: true; status?: PaymentResponse["payment_status"] } | { error: string }> {
+  ordenId: string
+): Promise<{ ok: true; status?: PaymentResponse["payment_status"]; recibido?: number } | { error: string }> {
   const taloResult = await getTaloClient();
   if ("error" in taloResult) return taloResult;
 
   const orden = await getOrden(ordenId);
   if (!orden) return { error: "Orden no encontrada" };
 
-  const resolvedPaymentId = paymentId ?? orden.paymentId ?? undefined;
-  if (!resolvedPaymentId || resolvedPaymentId.startsWith("mock_")) {
-    return { ok: true };
+  const ids = idsTaloDe(orden);
+  if (ids.length === 0) return { ok: true };
+
+  let masNuevo: PaymentResponse | null = null;
+  let falla: string | null = null;
+  for (const id of ids) {
+    let payment: PaymentResponse;
+    try {
+      payment = await taloResult.client.payments.get(id);
+    } catch (error) {
+      falla = error instanceof Error ? error.message : "Error al consultar Talo";
+      continue;
+    }
+    if (payment.external_id && payment.external_id !== ordenId) continue;
+    if (taloAcreditado(payment.payment_status)) {
+      const result = await processTaloPayment(payment);
+      if ("error" in result) return result;
+      return { ok: true, status: payment.payment_status };
+    }
+    if (!masNuevo) masNuevo = payment;
   }
 
-  try {
-    const payment = await taloResult.client.payments.get(resolvedPaymentId);
-    if (payment.external_id && payment.external_id !== ordenId) {
-      return { error: "El pago no corresponde a esta orden" };
-    }
-    const result = await processTaloPayment(payment);
-    if ("error" in result) return result;
-    return { ok: true, status: payment.payment_status };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Error al consultar Talo";
-    return { error: message };
-  }
+  if (!masNuevo) return falla ? { error: falla } : { ok: true };
+  const result = await processTaloPayment(masNuevo);
+  if ("error" in result) return result;
+  return {
+    ok: true,
+    status: masNuevo.payment_status,
+    ...(masNuevo.payment_status === "UNDERPAID" ? { recibido: recibidoTalo(masNuevo) } : {}),
+  };
 }

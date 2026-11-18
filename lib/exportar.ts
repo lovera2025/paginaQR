@@ -25,6 +25,7 @@ export function comprasACsv(filas: { evento: Pick<Evento, "nombre">; orden: Orde
     "Fecha",
     "Fiesta",
     "Comprador",
+    "DNI",
     "Email",
     "Entrada",
     "Cantidad",
@@ -42,13 +43,18 @@ export function comprasACsv(filas: { evento: Pick<Evento, "nombre">; orden: Orde
       formatFechaCorta(o.createdAt),
       evento.nombre,
       o.compradorNombre,
+      o.compradorDni ?? "",
       o.compradorEmail,
       o.tipoNombre,
       o.cantidad,
       o.precioUnitario,
       o.montoTotal,
       montoDevuelto(o),
-      o.problema === "pago_sin_cupo" && o.estado === "pendiente" ? "Pago sin cupo: devolver" : ESTADOS[o.estado],
+      o.problema === "pago_sin_cupo" && o.estado === "pendiente"
+        ? "Pago sin cupo: devolver"
+        : o.estado === "pendiente" && o.montoRecibido != null
+          ? `Transfirió de menos (llegaron ${o.montoRecibido})`
+          : ESTADOS[o.estado],
       o.paymentMethod === "mp" ? "Mercado Pago" : o.paymentMethod === "talo" ? "Transferencia" : "",
       o.paymentId ?? "",
       o.modoPago === "produccion" ? "Real" : o.modoPago ? "Prueba" : "",

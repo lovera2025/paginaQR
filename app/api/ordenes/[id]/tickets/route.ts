@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ordenPublica } from "@/lib/entradas/publica";
 import { getBranding, getEventoById, getOrden, getTicketsByOrden } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
   return NextResponse.json({
     tickets: tickets.sort((a, b) => a.numeroEntrada - b.numeroEntrada),
-    orden,
+    orden: ordenPublica(orden),
     evento,
     branding,
   });

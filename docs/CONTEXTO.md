@@ -1,8 +1,38 @@
 # PaginaQR / Junior Eventos — Contexto del proyecto
 
 > Documento de referencia para continuar el desarrollo en cualquier chat/sesión.
-> Última actualización: **10 noviembre 2026 (lanzamiento)** — Web publicada en **https://junioreventos.vercel.app** (Vercel gratis), panel con guía de puesta en marcha, etapas de venta y Pagos en lenguaje simple, anticipadas a **$10.000** en las 9 fiestas. Ver la sección de abajo.
-> **Para retomar en un chat nuevo:** "leé `docs/CONTEXTO.md` y seguimos con lo pendiente" → ir a **Sesión 10 nov (lanzamiento)** → "Qué falta".
+> Última actualización: **18 noviembre 2026** — Se cobra por **transferencia con Talo** desde el 16 nov (Mercado Pago real cargado pero **pausado**). Arreglo de "pagan y no ven el PDF": DNI + fecha de nacimiento en la compra, **Recuperar mis entradas** en la web, pantallas que no se rinden y pagos de Talo que nunca se pierden. Ver **Sesión 18 nov**.
+> **Para retomar en un chat nuevo:** "leé `docs/CONTEXTO.md` y seguimos con lo pendiente" → ir a **Sesión 18 nov** → "Qué falta".
+
+## Sesión 18 nov — "algunos pagan y no les aparece el PDF"
+
+### Diagnóstico (datos reales, solo lectura)
+- Desde el 16 nov: 36 compras por transferencia (Talo). **22 aprobadas solas** ($370.000) y **14 "Sin pagar"** ($310.000). Se consultó a Talo cada una de las 14: **todas PENDING sin ninguna transferencia** (abandonadas). No había plata perdida ni nada para conciliar; sus alias vencían en Talo a los **5 días** (21–23 nov).
+- Los que "pagaron y no vieron el QR" estaban entre las aprobadas: la plata entró y las entradas se emitieron, pero no llegaron a verlas o a bajar el PDF (cerraron la página al ir a la app del banco, o abrieron desde el navegador de **Instagram/TikTok**, donde el botón de descarga no hace nada). El jefe se las mandaba a mano.
+- Riesgos encontrados en el código (arreglados): al recargar la pantalla de pago se generaba **otro alias** de Talo y se olvidaba el anterior; la pantalla dejaba de consultar a los ~6 min; "Mis entradas" solo guardaba compras ya aprobadas; transferencias de menos (UNDERPAID) no se veían; recargar pasados 10 min decía "Se terminó el tiempo, no se cobró nada" aunque hubiera transferido.
+
+### Hecho
+- **DNI + fecha de nacimiento obligatorios en la compra** (`lib/entradas/identidad.ts`, `CompraEntradas.tsx`, validado en `/api/checkout`). El DNI se ve en Compras y en el Excel; la fecha no se muestra en ningún lado (ni viaja al navegador: `lib/entradas/publica.ts`).
+- **Recuperar mis entradas** (`/mis-entradas`, `POST /api/recuperar`): DNI + fecha de nacimiento → muestra sus compras. Las sin pagar se consultan antes en Talo (si la plata llegó se aprueban en el momento). Nunca muestra un QR sin pago confirmado. Tope: 8 intentos por DNI cada 30 min **guardado en la base** (tabla `recuperar_intentos`, cuentan también los aciertos) + 15 por IP. Cada recuperación queda en Actividad con la IP parcial. Decisión del usuario: **sin mail**; las compras anteriores al DNI las resuelve el jefe con **"Copiar link de las entradas"** en Compras.
+- **Talo nunca pierde un pago** (`lib/talo/payments.ts`): antes de generar otro alias revisa todos los de la compra (`ordenes.pagos_talo`, se agregan con la función SQL atómica `agregar_pago_talo`); si alguno se pagó, aprueba; UNDERPAID guarda `monto_recibido` y muestra "Recibimos $X de $Y"; solo con EXPIRED genera uno nuevo. El sync, "Revisar pago", "Revisar todas" y Recuperar consultan todos los ids.
+- **Pago doble** (`problema = 'pago_doble'`): si una compra ya paga recibe otro pago (otra transferencia o también MP) queda marcada "PAGÓ DOS VECES · DEVOLVER UNO", aviso en Actividad y botón "Ya le devolví el pago de más".
+- **Pantallas**: pago y éxito consultan sin tope (3 s y después 15 s) y al volver a la pestaña; botón "Ya transferí, revisar ahora", código de compra y "Copiar link"; la compra se guarda en el dispositivo apenas se muestra el alias; aviso para el navegador de Instagram/TikTok con "Abrir en Chrome"/"Copiar link"; "¿No se descarga? Abrilo en pantalla" (`?ver=1`). Un error pasajero de la base ya no corta la consulta.
+- **Panel**: "Revisar todas las sin pagar" (y solo al abrir Compras, últimas 48 h), chip "TRANSFIRIÓ DE MENOS", Actividad anota los avisos automáticos de Talo (para saber que llegan) con la parte única del id.
+- Entradas sin duplicar si se pierde la respuesta al emitir (índice único `tickets(orden_id, numero_entrada)`); cerrar una fiesta no esconde las transferencias de menos.
+- Migración `supabase/migrations/2026_11_talo_pagos_y_dni.sql`. Tests: `tests/talo-recuperar.test.ts` (Talo simulado). `npm test` 141/141, lint y build OK. Probado en el navegador con base en memoria (sin tocar la real): compra con DNI → pago simulado → borrar el navegador → Recuperar con DNI + fecha → Ver QR/PDF; aviso de Instagram a 375 px.
+- Revisión independiente (6 agentes) → 17 hallazgos confirmados, todos arreglados.
+
+### Aprendido
+- Los ids de Talo son `VAR-<cuenta>-<pago>`: los primeros 12 caracteres son iguales para todos (por eso Actividad decía siempre "VAR-c43bb66c").
+- Un pago de Talo vence a los **5 días** (no a los 10 min de nuestra reserva).
+- Para probar con la base en memoria sin tocar la real: variables de Supabase **vacías** (no borradas) al lanzar Next; con `set X=` de cmd se borran y Next vuelve a leer `.env.local`.
+- No hay credenciales de **sandbox de Talo** (el usuario no tiene): lo de Talo se probó con un Talo simulado en los tests.
+
+### Qué falta
+1. **Transferencia real chica del jefe** después de publicar: ver en Actividad "Aviso automático de Talo … transferencia recibida" con la pantalla cerrada (confirma que el aviso llega).
+2. Riesgo aceptado: DNI + fecha de nacimiento no son secretos entre compañeros. Si aparece un caso de "me sacaron la entrada", sumar un tercer dato (por ejemplo, últimos números del celular).
+3. Opcional: prender Mercado Pago como segunda opción (Pagos → Activar cobros).
+4. Lo pendiente de la sesión 10 nov que siga abierto (WhatsApp de contacto, plan de Vercel).
 
 ## Sesión 10 nov (lanzamiento) — panel para el jefe y publicación
 

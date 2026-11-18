@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { approveOrden, getOrden } from "@/lib/db";
 import { registrarPagoSinCupo } from "@/lib/payments/problemas";
+import { ordenPublica } from "@/lib/entradas/publica";
 import { canSimulatePayment } from "@/lib/talo/credentials";
 
 export async function POST(request: Request) {
@@ -19,13 +20,14 @@ export async function POST(request: Request) {
     const orden = result.sinCupo ? await getOrden(ordenId) : null;
     if (orden) {
       await registrarPagoSinCupo(orden, `Pago simulado · compra ${ordenId.slice(0, 8)}`, result.error);
-      return NextResponse.json({ orden: await getOrden(ordenId), sinCupo: true });
+      const actual = await getOrden(ordenId);
+      return NextResponse.json({ orden: actual ? ordenPublica(actual) : null, sinCupo: true });
     }
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
   return NextResponse.json({
-    orden: result.orden,
+    orden: ordenPublica(result.orden),
     ticketIds: result.tickets.map((t) => t.id),
   });
 }

@@ -270,6 +270,8 @@ export async function createOrdenPendiente(input: {
   compradorNombre: string;
   compradorEmail: string;
   cantidad: number;
+  compradorDni?: string | null;
+  compradorNacimiento?: string | null;
 }): Promise<{ orden: Orden } | { error: string }> {
   const evento = await getEventoById(input.eventoId);
   if (!evento) return { error: "Fiesta no encontrada" };
@@ -299,6 +301,9 @@ export async function createOrdenPendiente(input: {
       cantidad: input.cantidad,
       monto_total: disponible.precio * input.cantidad,
       estado: "pendiente",
+      // Solo si vienen (así las pruebas y compras sin DNI no dependen de la migración).
+      ...(input.compradorDni ? { comprador_dni: input.compradorDni } : {}),
+      ...(input.compradorNacimiento ? { comprador_nacimiento: input.compradorNacimiento } : {}),
     })
     .select()
     .single();
@@ -308,20 +313,106 @@ export async function createOrdenPendiente(input: {
 }
 
 export async function getOrdenByPaymentId(paymentId: string): Promise<Orden | null> {
-  const { data } = await db().from("ordenes").select("*").eq("mp_payment_id", paymentId).maybeSingle();
-  return data ? mapOrden(data) : null;
+  // Un error de la base no es "no existe": se lanza para que el aviso del pago se reintente.
+  const { data, error } = await db().from("ordenes").select("*").eq("mp_payment_id", paymentId).maybeSingle();
+  if (error) throw new Error(`No se pudo buscar el pago: ${error.message}`);
+  if (data) return mapOrden(data);
+  // Un pago de Talo anterior (se generó otro después): sigue perteneciendo a esa compra.
+  const { data: anterior, error: errorAnterior } = await db()
+    .from("ordenes")
+    .select("*")
+    .contains("pagos_talo", [paymentId])
+    .limit(1)
+    .maybeSingle();
+  if (errorAnterior) throw new Error(`No se pudo buscar el pago: ${errorAnterior.message}`);
+  return anterior ? mapOrden(anterior) : null;
 }
 
+/**
+ * Guarda el pago iniciado. Con Talo se agrega a `pagos_talo` de forma atómica (nunca se pisa uno
+ * anterior) aunque la compra ya no esté pendiente, para no perderlo; `estado` dice cómo quedó la compra.
+ */
 export async function setOrdenPaymentId(
   ordenId: string,
   paymentId: string,
   paymentMethod?: PaymentMethod
-): Promise<{ ok: true } | { error: string }> {
+): Promise<{ ok: true; estado: string } | { error: string }> {
+  if (paymentMethod === "talo") {
+    const { data, error } = await db().rpc("agregar_pago_talo", { p_orden: ordenId, p_pago: paymentId });
+    if (error) return { error: error.message };
+    if (!data) return { error: "Orden no encontrada" };
+    return { ok: true, estado: String(data) };
+  }
   const update: Record<string, string> = { mp_payment_id: paymentId };
   if (paymentMethod) update.payment_method = paymentMethod;
-  const { error } = await db().from("ordenes").update(update).eq("id", ordenId).eq("estado", "pendiente");
+  const { data, error } = await db()
+    .from("ordenes")
+    .update(update)
+    .eq("id", ordenId)
+    .eq("estado", "pendiente")
+    .select("estado")
+    .maybeSingle();
   if (error) return { error: error.message };
-  return { ok: true };
+  if (!data) return { error: "La compra ya no está pendiente" };
+  return { ok: true, estado: "pendiente" };
+}
+
+/** Ya se devolvió el pago doble: se saca el aviso (la compra sigue pagada con sus entradas). */
+export async function resolverPagoDoble(ordenId: string): Promise<{ orden: Orden } | { error: string }> {
+  const { data, error } = await db()
+    .from("ordenes")
+    .update({ problema: null })
+    .eq("id", ordenId)
+    .eq("problema", "pago_doble")
+    .select()
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { error: "Esta compra no tiene un pago doble para devolver" };
+  return { orden: mapOrden(data) };
+}
+
+/**
+ * Anota un intento de "Recuperar mis entradas" para ese DNI y devuelve cuántos hubo en la ventana.
+ * Se guarda en la base para que el tope valga en todas las instancias del servidor.
+ */
+export async function contarIntentoRecuperar(dni: string, ventanaMs: number): Promise<number> {
+  const desde = new Date(Date.now() - ventanaMs).toISOString();
+  await db().from("recuperar_intentos").insert({ dni });
+  const { count, error } = await db()
+    .from("recuperar_intentos")
+    .select("id", { count: "exact", head: true })
+    .eq("dni", dni)
+    .gte("created_at", desde);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+/** Transferencia de menos: cuánto llegó (null para borrarlo). */
+export async function setMontoRecibido(ordenId: string, monto: number | null): Promise<void> {
+  await db().from("ordenes").update({ monto_recibido: monto }).eq("id", ordenId);
+}
+
+/** Compras con ese DNI (para "Recuperar mis entradas"). */
+export async function getOrdenesPorDni(dni: string): Promise<Orden[]> {
+  const { data } = await db()
+    .from("ordenes")
+    .select("*")
+    .eq("comprador_dni", dni)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  return (data ?? []).map(mapOrden);
+}
+
+/** Compras sin pagar de todas las fiestas, desde una fecha (para revisarlas todas juntas). */
+export async function getOrdenesPendientesDesde(desde: string): Promise<Orden[]> {
+  const { data } = await db()
+    .from("ordenes")
+    .select("*")
+    .eq("estado", "pendiente")
+    .gte("created_at", desde)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  return (data ?? []).map(mapOrden);
 }
 
 export async function approveOrden(
@@ -367,6 +458,8 @@ export async function approveOrden(
       modo_pago: modoPago,
       // Si antes quedó marcada sin cupo y ahora se pudo emitir, el problema se resolvió.
       ...(orden.problema ? { problema: null } : {}),
+      // Si antes llegó de menos y ahora se completó, ya no aplica.
+      ...(orden.montoRecibido != null ? { monto_recibido: null } : {}),
     })
     .eq("id", ordenId)
     .eq("estado", "pendiente")
@@ -393,12 +486,25 @@ export async function approveOrden(
     total_entradas: orden.cantidad,
   }));
 
-  const { data: ticketsData, error: ticketsError } = await db().from("tickets").insert(ticketRows).select();
-  if (ticketsError) {
-    // Sin entradas la compra no puede quedar aprobada: se vuelve a pendiente para reintentar.
-    await db().from("ordenes").update({ estado: "pendiente" }).eq("id", ordenId).eq("estado", "aprobado");
-    return { error: ticketsError.message };
+  // Si un intento anterior llegó a emitir algunas (y se perdió la respuesta), no se duplican.
+  const yaEmitidas = await getTicketsByOrden(ordenId);
+  const numeros = new Set(yaEmitidas.map((t) => t.numeroEntrada));
+  const faltan = ticketRows.filter((t) => !numeros.has(t.numero_entrada));
+  let ticketsData: TicketRow[] = [];
+  if (faltan.length > 0) {
+    const { data: nuevos, error: ticketsError } = await db().from("tickets").insert(faltan).select();
+    if (ticketsError) {
+      const despues = await getTicketsByOrden(ordenId);
+      if (despues.length < orden.cantidad) {
+        // Sin entradas la compra no puede quedar aprobada: se vuelve a pendiente para reintentar.
+        await db().from("ordenes").update({ estado: "pendiente" }).eq("id", ordenId).eq("estado", "aprobado");
+        return { error: ticketsError.message };
+      }
+    } else {
+      ticketsData = (nuevos ?? []) as TicketRow[];
+    }
   }
+  const emitidas = await getTicketsByOrden(ordenId);
 
   await logActivity(
     "venta",
@@ -407,7 +513,7 @@ export async function approveOrden(
 
   return {
     orden: mapOrden(claimed),
-    tickets: (ticketsData ?? []).map(mapTicket).sort((a, b) => a.numeroEntrada - b.numeroEntrada),
+    tickets: (emitidas.length ? emitidas : ticketsData.map(mapTicket)).sort((a, b) => a.numeroEntrada - b.numeroEntrada),
     nueva: true,
   };
 }
@@ -476,7 +582,9 @@ export async function reabrirOrden(ordenId: string): Promise<{ orden: Orden } | 
 }
 
 export async function getOrden(ordenId: string): Promise<Orden | null> {
-  const { data } = await db().from("ordenes").select("*").eq("id", ordenId).maybeSingle();
+  const { data, error } = await db().from("ordenes").select("*").eq("id", ordenId).maybeSingle();
+  // Un id mal formado es "no existe"; un corte de la base no (se lanza para que se reintente).
+  if (error && error.code !== "22P02") throw new Error(`No se pudo leer la compra: ${error.message}`);
   return data ? mapOrden(data) : null;
 }
 
@@ -745,13 +853,15 @@ export function reanudarVentas(eventoId: string) {
 }
 
 export async function cerrarEvento(eventoId: string): Promise<{ evento: Evento } | { error: string }> {
-  // Las que quedaron "pago sin cupo" siguen pendientes hasta registrar la devolución.
+  // Las que quedaron "pago sin cupo" o transfirieron de menos siguen pendientes hasta resolverlas
+  // (entró plata que hay que devolver o completar).
   await db()
     .from("ordenes")
     .update({ estado: "rechazado" })
     .eq("evento_id", eventoId)
     .eq("estado", "pendiente")
-    .is("problema", null);
+    .is("problema", null)
+    .is("monto_recibido", null);
   return cambiarEstado(
     eventoId,
     ["venta", "pausado"],

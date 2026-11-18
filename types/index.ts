@@ -143,9 +143,21 @@ export interface Orden {
    * `pago_sin_cupo` = el pago entró pero ya no quedaban entradas (hay que devolver la plata).
    */
   problema?: OrdenProblema | null;
+  /** DNI (solo números). Se pide desde el 18 nov 2026; las compras anteriores no lo tienen. */
+  compradorDni?: string | null;
+  /** Fecha de nacimiento AAAA-MM-DD. Solo sirve para "Recuperar mis entradas": no se muestra. */
+  compradorNacimiento?: string | null;
+  /** Todos los pagos de Talo generados para esta compra (el último también está en paymentId). */
+  pagosTalo?: string[];
+  /** Plata que llegó cuando la transferencia fue de menos. null = no aplica. */
+  montoRecibido?: number | null;
 }
 
-export type OrdenProblema = "pago_sin_cupo";
+/**
+ * `pago_sin_cupo` = el pago entró pero ya no quedaban entradas (hay que devolver la plata).
+ * `pago_doble` = la compra ya estaba paga y llegó otro pago (hay que devolver uno).
+ */
+export type OrdenProblema = "pago_sin_cupo" | "pago_doble";
 
 export interface Ticket {
   id: string;
